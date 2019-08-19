@@ -203,7 +203,7 @@ int RunPortableExecutable()
 #endif
 }
 
-VOID Display32ErrorDialog(HWND Parent, int code)
+VOID Display32ErrorDialog(HWND Parent, DWORD code)
 {
 	WCHAR Buffer[512] = { };
 	WCHAR ErrorBuffer[256] = { };
@@ -213,7 +213,7 @@ VOID Display32ErrorDialog(HWND Parent, int code)
 		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 		NULL,
 		code,
-		MAKELANGID(SUBLANG_DEFAULT, SUBLANG_DEFAULT),
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 		ErrorBuffer,
 		(sizeof(ErrorBuffer) / sizeof(WCHAR)),
 		NULL);
@@ -225,6 +225,9 @@ VOID Display32ErrorDialog(HWND Parent, int code)
 		ErrorBuffer);
 
 	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
+
+	LocalFree(Buffer);
+	LocalFree(ErrorBuffer);
 }
 
 LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
