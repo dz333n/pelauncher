@@ -13,8 +13,14 @@
 #if _WIN64
 #define Env64
 #define Unsupported
+#define EnvBaseReg    Rbx // wrong
+#define EnvBaseOffset 8
+#define EnvBaseReg2   Rax
 #else
 #define Env86
+#define EnvBaseReg    Ebx
+#define EnvBaseOffset 8
+#define EnvBaseReg2   Eax
 #endif
 #endif
 #endif
@@ -164,15 +170,9 @@ int RunPortableExecutable()
 
 	uintptr_t* image_base;
 
-#if defined (Env86)
-	void* const modified_ebx = (void*)(ctx->Ebx + 8);
-#elif defined (Env64)
-	void* const modified_ebx = (void*)(ctx->Rbx + 8);
-#else
-#error "Unknown platfom"
-#endif
+	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
 
-	success = ReadProcessMemory(process_info.hProcess, modified_ebx, &image_base, 4, NULL);
+	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, 4, NULL);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
@@ -198,18 +198,12 @@ int RunPortableExecutable()
 			return FinalizeRunPE(success, rc, process_info.hProcess);
 	}
 
-	success = WriteProcessMemory(process_info.hProcess, modified_ebx, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
+	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
-#if defined (Env86)
-	ctx->Eax = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
-#elif defined (Env64)
-	ctx->Rax = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint; 
-#else
-#error "Unknown platfom"
-#endif
+	ctx->EnvBaseReg2 = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
 
 	success = SetThreadContext(process_info.hThread, ctx);
 
