@@ -28,6 +28,8 @@ HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 
 TCHAR FilePath[MAX_PATH] = { };
+LPWSTR RunArgumentPath;
+BOOL RunArgument = FALSE;
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -36,6 +38,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
 	// Perform application initialization:
 	hInst = hInstance; // Store instance handle in our global variable
+
+	int pNumArgs;
+	LPWSTR *szArglist = CommandLineToArgvW(lpCmdLine, &pNumArgs);
+
+	if (pNumArgs >= 1)
+	{
+		RunArgument = TRUE; // this actually works every time :/ but we check for lenght later
+		RunArgumentPath = lpCmdLine;
+	}
 
 	DialogBox(hInst, MAKEINTRESOURCE(IDD_MAIN), NULL, (DLGPROC)DlgProc);
 
@@ -244,6 +255,24 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 	LocalFree(ErrorBuffer);
 }
 
+VOID DoLaunch(HWND hDlg)
+{
+	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
+
+	if (_tcslen(FilePath) <= 0) return;
+
+	int result = RunPortableExecutable();
+
+	if (result == 0)
+	{
+		EndDialog(hDlg, 0);
+	}
+	else
+	{
+		Display32ErrorDialog(hDlg, result);
+	}
+}
+
 LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
 	if (Msg == WM_INITDIALOG)
@@ -252,6 +281,13 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		MessageBox(hDlg, L"Current platform is unsupported.", L"PELauncher", 0);
 #endif
 		UpdateButton(hDlg);
+
+		if (RunArgument)
+		{
+			SetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), RunArgumentPath);
+			DoLaunch(hDlg);
+		}
+
 		return TRUE;
 	}
 	else if (Msg == WM_CLOSE)
@@ -271,22 +307,8 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		switch (LOWORD(wParam))
 		{
 			case IDLAUNCH:
-			{
-				GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
-				
-				int result = RunPortableExecutable();
-
-				if (result == 0)
-				{
-					EndDialog(hDlg, 0); 
-					return TRUE;
-				}
-				else
-				{
-					Display32ErrorDialog(hDlg, result);
-					return TRUE;
-				}
-			}
+				DoLaunch(hDlg);
+				return TRUE;
 
 			case IDCANCEL:
 				EndDialog(hDlg, 0);
