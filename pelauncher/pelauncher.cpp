@@ -27,7 +27,7 @@
 HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 
-TCHAR FilePath[MAX_PATH];
+TCHAR FilePath[MAX_PATH] = { };
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -203,8 +203,8 @@ int RunPortableExecutable()
 
 VOID Display32ErrorDialog(HWND Parent, int code)
 {
-	WCHAR Buffer[512];
-	WCHAR ErrorBuffer[256];
+	WCHAR Buffer[512] = { };
+	WCHAR ErrorBuffer[256] = { };
 
 	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
 	else FormatMessageW(
