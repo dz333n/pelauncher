@@ -18,6 +18,7 @@
 #define IDLAUNCH                        1000
 #define IDC_EXE_PATH                    1001
 #define I                               1002
+#define IDC_PLATFORM                    1003
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -26,7 +27,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        131
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1003
+#define _APS_NEXT_CONTROL_VALUE         1004
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

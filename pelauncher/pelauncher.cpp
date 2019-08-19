@@ -277,6 +277,16 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
 	if (Msg == WM_INITDIALOG)
 	{
+#if defined (Env86)
+		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: x86");
+#elif defined (Env64)
+		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: x64");
+#elif defined (EnvARM)
+		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: ARM");
+#else
+		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Unknown platform");
+#endif
+
 #if defined (Unsupported)
 		MessageBox(hDlg, L"Current platform is unsupported.", L"PELauncher", 0);
 #endif
