@@ -75,6 +75,8 @@ VOID UpdateButton(HWND hDlg)
 }
 
 #define RunPEResult (!success ? GetLastError() : rc)
+#define FinalizeRunPE return RunPEResult;
+
 int RunPortableExecutable()
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
@@ -133,7 +135,7 @@ int RunPortableExecutable()
 	success = GetThreadContext(process_info.hThread, ctx);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 	uintptr_t* image_base;
 
@@ -148,7 +150,7 @@ int RunPortableExecutable()
 	success = ReadProcessMemory(process_info.hProcess, modified_ebx, &image_base, 4, NULL);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 	void* const binary_base = VirtualAllocEx(process_info.hProcess, (void*)(nt_header->OptionalHeader.ImageBase),
 		nt_header->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -156,7 +158,7 @@ int RunPortableExecutable()
 	success = WriteProcessMemory(process_info.hProcess, binary_base, binary, nt_header->OptionalHeader.SizeOfHeaders, NULL);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 	const uintptr_t binary_base_address = (uintptr_t)binary_base;
 
@@ -168,13 +170,13 @@ int RunPortableExecutable()
 		success = WriteProcessMemory(process_info.hProcess, virtual_base_address, virtual_buffer, section_header->SizeOfRawData, 0);
 
 		if (!success)
-			return RunPEResult;
+			FinalizeRunPE;
 	}
 
 	success = WriteProcessMemory(process_info.hProcess, modified_ebx, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 #if defined (Env86)
 	ctx->Eax = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
@@ -187,12 +189,12 @@ int RunPortableExecutable()
 	success = SetThreadContext(process_info.hThread, ctx);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 	success = ResumeThread(process_info.hThread);
 
 	if (!success)
-		return RunPEResult;
+		FinalizeRunPE;
 
 	return RunPEResult;
 #else
