@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 #include "resource.h"
+#include <winternl.h>
 
 #if defined (_M_ARM)
 #define EnvARM
@@ -13,9 +14,9 @@
 #if _WIN64
 #define Env64
 #define Unsupported
-#define EnvBaseReg    Rbx // wrong
+#define EnvBaseReg    Rdx
 #define EnvBaseOffset 8
-#define EnvBaseReg2   Rax
+#define EnvBaseReg2   Rax // check
 #else
 #define Env86
 #define EnvBaseReg    Ebx
@@ -29,6 +30,8 @@
 #pragma message ("Platform unsupported !!!!")
 #endif
 
+// #define DEV_CONTEXT // for NtQueryInformationProcess 
+
 // Global Variables:
 HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
@@ -36,6 +39,43 @@ LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 TCHAR FilePath[MAX_PATH] = { };
 LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
+
+BOOL sm_EnableTokenPrivilege(LPCTSTR pszPrivilege)
+{
+	HANDLE hToken = 0;
+	TOKEN_PRIVILEGES tkp = { 0 };
+
+	// Get a token for this process.
+
+	if (!OpenProcessToken(GetCurrentProcess(),
+		TOKEN_ADJUST_PRIVILEGES |
+		TOKEN_QUERY, &hToken))
+	{
+		return FALSE;
+	}
+
+	// Get the LUID for the privilege. 
+
+	if (LookupPrivilegeValue(NULL, pszPrivilege,
+		&tkp.Privileges[0].Luid))
+	{
+		tkp.PrivilegeCount = 1;  // one privilege to set    
+
+		tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+		// Set the privilege for this process. 
+
+		AdjustTokenPrivileges(hToken, FALSE, &tkp, 0,
+			(PTOKEN_PRIVILEGES)NULL, 0);
+
+		if (GetLastError() != ERROR_SUCCESS)
+			return FALSE;
+
+		return TRUE;
+	}
+
+	return FALSE;
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -108,6 +148,36 @@ DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess)
 	return result;
 }
 
+#ifdef DEV_CONTEXT
+typedef NTSTATUS(NTAPI *pfnNtQueryInformationProcess)(
+	IN  HANDLE ProcessHandle,
+	IN  PROCESSINFOCLASS ProcessInformationClass,
+	OUT PVOID ProcessInformation,
+	IN  ULONG ProcessInformationLength,
+	OUT PULONG ReturnLength    OPTIONAL
+	);
+
+pfnNtQueryInformationProcess gNtQueryInformationProcess;
+
+HMODULE sm_LoadNTDLLFunctions()
+{
+	// Load NTDLL Library and get entry address
+
+	// for NtQueryInformationProcess
+
+	HMODULE hNtDll = LoadLibrary(_T("ntdll.dll"));
+	if (hNtDll == NULL) return NULL;
+
+	gNtQueryInformationProcess = (pfnNtQueryInformationProcess)GetProcAddress(hNtDll,
+		"NtQueryInformationProcess");
+	if (gNtQueryInformationProcess == NULL) {
+		FreeLibrary(hNtDll);
+		return NULL;
+	}
+	return hNtDll;
+}
+#endif
+
 int RunPortableExecutable()
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
@@ -169,6 +239,26 @@ int RunPortableExecutable()
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
 	uintptr_t* image_base;
+
+#ifdef DEV_CONTEXT
+	PVOID pbi;
+	auto hHeap = GetProcessHeap();
+
+	size_t dwSize = sizeof(PROCESS_BASIC_INFORMATION);
+	ULONG dwSizeNeeded = 0;
+
+	pbi = (PROCESS_BASIC_INFORMATION*)HeapAlloc(hHeap,
+		HEAP_ZERO_MEMORY,
+		dwSize);
+
+	NTSTATUS dwStatus = gNtQueryInformationProcess(process_info.hProcess,
+		ProcessBasicInformation,
+		pbi,
+		dwSize,
+		&dwSizeNeeded);
+
+	PROCESS_BASIC_INFORMATION* pbix = (PROCESS_BASIC_INFORMATION*)pbi;
+#endif
 
 	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
 
@@ -244,9 +334,6 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 		ErrorBuffer);
 
 	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
-
-	LocalFree(Buffer);
-	LocalFree(ErrorBuffer);
 }
 
 VOID DoLaunch(HWND hDlg)
@@ -279,6 +366,13 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: ARM");
 #else
 		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Unknown platform");
+#endif
+
+#ifdef DEV_CONTEXT
+		if (!sm_EnableTokenPrivilege(L"SE_DEBUG_NAME"))
+			MessageBox(hDlg, L"Unable to get debug privilege", L"PELauncher", 0);
+
+		sm_LoadNTDLLFunctions();
 #endif
 
 #if defined (Unsupported)
