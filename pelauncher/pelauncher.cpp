@@ -178,7 +178,7 @@ HMODULE sm_LoadNTDLLFunctions()
 }
 #endif
 
-int RunPortableExecutable()
+int RunPortableExecutable(HWND hDlg)
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
 
@@ -336,13 +336,20 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
 }
 
-VOID DoLaunch(HWND hDlg)
+
+DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 {
+	HWND hDlg = (HWND)lpParam;
+
 	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
 
-	if (_tcslen(FilePath) <= 0) return;
+	if (_tcslen(FilePath) <= 0) return TRUE;
 
-	int result = RunPortableExecutable();
+	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), FALSE);
+	EnableWindow(GetDlgItem(hDlg, IDSELECT), FALSE);
+	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), FALSE);
+
+	int result = RunPortableExecutable(hDlg);
 
 	if (result == 0)
 	{
@@ -352,6 +359,23 @@ VOID DoLaunch(HWND hDlg)
 	{
 		Display32ErrorDialog(hDlg, result);
 	}
+
+	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), TRUE);
+	EnableWindow(GetDlgItem(hDlg, IDSELECT), TRUE);
+	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), TRUE);
+
+	return TRUE;
+}
+
+VOID DoLaunch(HWND hDlg)
+{
+	CreateThread(
+		NULL,
+		0,
+		&ProcessThreadProc,
+		hDlg,
+		0,
+		NULL);
 }
 
 LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
