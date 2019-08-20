@@ -245,6 +245,19 @@ HMODULE sm_LoadNTDLLFunctions()
 }
 #endif
 
+wchar_t* RemoveFirstChar(wchar_t* input)
+{
+	int len = wcslen(input);
+	wchar_t* result = new wchar_t[len];
+
+	for (int i = 1; i < len; i++)
+		result[i-1] = input[i];
+
+	result[len-1] = '\0';
+
+	return result;
+}
+
 int RunPortableExecutable(HWND hDlg)
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
@@ -301,13 +314,57 @@ int RunPortableExecutable(HWND hDlg)
 	SecureZeroMemory(&startup_info, sizeof(startup_info));
 	SecureZeroMemory(&process_info, sizeof(process_info));
 
-	wchar_t current_file_path[MAX_PATH];
-	GetModuleFileNameW(NULL, current_file_path, MAX_PATH);
+	BOOL UseStub = SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_GETCHECK, 0, 0) == BST_CHECKED;
+	BOOL RenameStub = SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_GETCHECK, 0, 0) == BST_CHECKED;
+	wchar_t current_file_path[MAX_PATH], FullFilePath[MAX_PATH];
+	wchar_t* OriginalFileName = nullptr;
+
+	if (!UseStub)
+	{
+		GetModuleFileNameW(NULL, current_file_path, MAX_PATH);
+	}
+	else
+	{
+		if (RenameStub) 
+		{
+			GetFullPathName(FilePath, MAX_PATH, FullFilePath, NULL);
+			wchar_t* safeFileName = wcsrchr(FullFilePath, L'\\');
+			OriginalFileName = RemoveFirstChar(safeFileName);
+
+			success = CopyFile(
+				L"pelauncher_stub.exe",
+				OriginalFileName,
+				FALSE); 
+			
+			if (!success)
+				return RunPEResult;
+
+			wcscpy_s(current_file_path, MAX_PATH, OriginalFileName);
+		}
+		else wcscpy_s(current_file_path, MAX_PATH, L"pelauncher_stub.exe");
+	}
 
 	success = CreateProcessW(current_file_path, NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
 
 	if (!success)
 		return RunPEResult;
+
+	if (UseStub && RenameStub)
+	{
+		DeleteFile(L"delete.exe");
+
+		success = MoveFileEx(OriginalFileName, L"delete.exe", MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING);
+		
+		if (!success)
+			return RunPEResult;
+
+		success = DeleteFile(L"delete.exe"); 
+		
+		if (!success)
+			return RunPEResult;
+
+		swprintf_s(current_file_path, MAX_PATH, OriginalFileName);
+	}
 
 	SetStatusDlg(L"Working with instance...");
 
@@ -466,6 +523,17 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 #endif
 		UpdateButton(hDlg);
 
+		if (FileExists((TCHAR*)L"pelauncher_stub.exe"))
+		{
+			SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_SETCHECK, BST_CHECKED, 0);
+			SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_CHECKED, 0);
+		}
+		else 
+		{
+			EnableWindow(GetDlgItem(hDlg, IDC_USE_STUB), FALSE);
+			EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), FALSE);
+		}
+
 		if (RunArgument)
 		{
 			SetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), RunArgumentPath);
@@ -485,6 +553,21 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 			&& LOWORD(wParam) == IDC_EXE_PATH)
 		{
 			UpdateButton(hDlg);
+			return TRUE;
+		}
+		else if (HIWORD(wParam) == BN_CLICKED
+			&& LOWORD(wParam) == IDC_USE_STUB)
+		{
+			if (SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_GETCHECK, 0, 0) == BST_UNCHECKED)
+			{
+				SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_UNCHECKED, 0);
+				EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), FALSE);
+			}
+			else
+			{
+				EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), TRUE);
+			}
+
 			return TRUE;
 		}
 

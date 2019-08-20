@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.28307.757
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pelauncher", "pelauncher\pelauncher.vcxproj", "{723A8456-625E-44FB-B958-4FC402A4D30B}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pelauncher_stub", "pelauncher_stub\pelauncher_stub.vcxproj", "{C9EDBC24-358A-4F77-96E1-D33787B6155F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -27,6 +29,17 @@ Global
 		{723A8456-625E-44FB-B958-4FC402A4D30B}.Release|x64.Build.0 = Release|x64
 		{723A8456-625E-44FB-B958-4FC402A4D30B}.Release|x86.ActiveCfg = Release|Win32
 		{723A8456-625E-44FB-B958-4FC402A4D30B}.Release|x86.Build.0 = Release|Win32
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|ARM.ActiveCfg = Debug|ARM
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|ARM.Build.0 = Debug|ARM
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|x64.ActiveCfg = Debug|x64
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|x64.Build.0 = Debug|x64
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|x86.ActiveCfg = Debug|Win32
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Debug|x86.Build.0 = Debug|Win32
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Release|ARM.ActiveCfg = Release|Win32
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Release|x64.ActiveCfg = Release|x64
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Release|x64.Build.0 = Release|x64
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Release|x86.ActiveCfg = Release|Win32
+		{C9EDBC24-358A-4F77-96E1-D33787B6155F}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
