@@ -47,6 +47,8 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 	WCHAR ErrorBuffer[256] = { };
 
 	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
+	else if (code == -1) wcscpy_s(ErrorBuffer, 256, L"Wrong platform");
+	else if (code == -2) wcscpy_s(ErrorBuffer, 256, L"Invalid executable (PE)");
 	else FormatMessageW(
 		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 		NULL,
@@ -285,8 +287,9 @@ int RunPortableExecutable(HWND hDlg)
 	IMAGE_DOS_HEADER* const dos_header = (IMAGE_DOS_HEADER*)binary;
 	IMAGE_NT_HEADERS* const nt_header = (IMAGE_NT_HEADERS*)(binary_address + dos_header->e_lfanew);
 
-	if (nt_header->Signature != IMAGE_NT_SIGNATURE) {
-		rc = 1;
+	if (nt_header->Signature != IMAGE_NT_SIGNATURE) 
+	{
+		rc = -2;
 		return RunPEResult;
 	}
 
