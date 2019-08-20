@@ -3,7 +3,6 @@
 
 #include "stdafx.h"
 #include "resource.h"
-#include <winternl.h>
 
 #if defined (_M_ARM)
 #define EnvARM
@@ -39,6 +38,50 @@ LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 TCHAR FilePath[MAX_PATH] = { };
 LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
+
+typedef PWSTR(WINAPI *StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UINT cchBuf);
+
+VOID Display32ErrorDialog(HWND Parent, DWORD code)
+{
+	WCHAR Buffer[512] = { };
+	WCHAR ErrorBuffer[256] = { };
+
+	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
+	else FormatMessageW(
+		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL,
+		code,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		ErrorBuffer,
+		(sizeof(ErrorBuffer) / sizeof(WCHAR)),
+		NULL);
+
+	swprintf_s(
+		Buffer, 512,
+		L"Error %d - %s",
+		code,
+		ErrorBuffer);
+
+	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
+}
+
+PWSTR WINAPI StrFormatByteSizeW(HWND hDlg, LONGLONG qdw, PWSTR pszBuf, UINT cchBuf)
+{
+	HMODULE module = LoadLibrary(L"shlwapi.dll");
+
+	if (module == NULL) 
+	{
+		Display32ErrorDialog(hDlg, GetLastError());
+		return NULL;
+	}
+
+	StrFormatByteSizeW_Import func = (StrFormatByteSizeW_Import)GetProcAddress(module, "StrFormatByteSizeW");
+
+	PWSTR result = func(qdw, pszBuf, cchBuf);
+
+	FreeLibrary(module);
+	return result;
+}
 
 BOOL sm_EnableTokenPrivilege(LPCTSTR pszPrivilege)
 {
@@ -97,6 +140,26 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	DialogBox(hInst, MAKEINTRESOURCE(IDD_MAIN), NULL, (DLGPROC)DlgProc);
 
 	return 0;
+}
+
+#define SetStatusDlg(text) SetStatus(hDlg, text)
+
+VOID SetStatus(HWND hDlg, LPCWSTR Text)
+{
+	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), Text);
+}
+
+VOID SetStatusInitial(HWND hDlg)
+{
+#if defined (Env86)
+	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: x86");
+#elif defined (Env64)
+	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: x64");
+#elif defined (EnvARM)
+	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: ARM");
+#else
+	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: ???");
+#endif
 }
 
 BOOL FileExists(TCHAR* szPath)
@@ -181,6 +244,8 @@ HMODULE sm_LoadNTDLLFunctions()
 int RunPortableExecutable(HWND hDlg)
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
+	WCHAR LogBuf[512] = { };
+	WCHAR SizeBuf[128] = { };
 
 	// Load file
 	HANDLE hFile = CreateFile(
@@ -198,6 +263,10 @@ int RunPortableExecutable(HWND hDlg)
 	DWORD fLen = GetFileSize(hFile, NULL);
 	char* binary = new char[fLen];
 
+	StrFormatByteSizeW(hDlg, fLen, SizeBuf, 128);
+	swprintf_s(LogBuf, 512, L"Reading %s...", SizeBuf);
+	SetStatusDlg(LogBuf);
+
 	if (!ReadFile(hFile, binary, fLen, NULL, NULL))
 	{
 		CloseHandle(hFile);
@@ -206,6 +275,9 @@ int RunPortableExecutable(HWND hDlg)
 	}
 
 	CloseHandle(hFile);
+
+	SetStatusDlg(L"Working with headers...");
+
 	int success = 1, rc = 0;
 	const uintptr_t binary_address = (uintptr_t)binary;
 	IMAGE_DOS_HEADER* const dos_header = (IMAGE_DOS_HEADER*)binary;
@@ -215,6 +287,8 @@ int RunPortableExecutable(HWND hDlg)
 		rc = 1;
 		return RunPEResult;
 	}
+
+	SetStatusDlg(L"Launching new instance...");
 
 	STARTUPINFOW startup_info;
 	PROCESS_INFORMATION process_info;
@@ -229,6 +303,8 @@ int RunPortableExecutable(HWND hDlg)
 
 	if (!success)
 		return RunPEResult;
+
+	SetStatusDlg(L"Working with instance...");
 
 	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(ctx), MEM_COMMIT, PAGE_READWRITE);
 	ctx->ContextFlags = CONTEXT_FULL;
@@ -282,11 +358,21 @@ int RunPortableExecutable(HWND hDlg)
 		void* const virtual_base_address = (void*)(binary_base_address + section_header->VirtualAddress);
 		void* const virtual_buffer = (void*)(binary_address + section_header->PointerToRawData);
 
+		// convert name to normal type for log
+		int output_size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, NULL, 0);
+		wchar_t *converted_buf = new wchar_t[output_size];
+		int size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, converted_buf, output_size);
+
+		swprintf_s(LogBuf, 512, L"Writing section %s", converted_buf);
+		SetStatusDlg(LogBuf);
+
 		success = WriteProcessMemory(process_info.hProcess, virtual_base_address, virtual_buffer, section_header->SizeOfRawData, 0);
 
 		if (!success)
 			return FinalizeRunPE(success, rc, process_info.hProcess);
 	}
+
+	SetStatusDlg(L"Finalizing...");
 
 	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
 
@@ -312,31 +398,6 @@ int RunPortableExecutable(HWND hDlg)
 #endif
 }
 
-VOID Display32ErrorDialog(HWND Parent, DWORD code)
-{
-	WCHAR Buffer[512] = { };
-	WCHAR ErrorBuffer[256] = { };
-
-	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
-	else FormatMessageW(
-		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		code,
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-		ErrorBuffer,
-		(sizeof(ErrorBuffer) / sizeof(WCHAR)),
-		NULL);
-
-	swprintf_s(
-		Buffer, 512,
-		L"Error %d - %s",
-		code,
-		ErrorBuffer);
-
-	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
-}
-
-
 DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 {
 	HWND hDlg = (HWND)lpParam;
@@ -348,6 +409,8 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), FALSE);
+
+	SetStatusDlg(L"Initializing...");
 
 	int result = RunPortableExecutable(hDlg);
 
@@ -363,6 +426,8 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), TRUE);
+
+	SetStatusInitial(hDlg);
 
 	return TRUE;
 }
@@ -382,15 +447,7 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
 	if (Msg == WM_INITDIALOG)
 	{
-#if defined (Env86)
-		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: x86");
-#elif defined (Env64)
-		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: x64");
-#elif defined (EnvARM)
-		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Platform: ARM");
-#else
-		SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Unknown platform");
-#endif
+		SetStatusInitial(hDlg);
 
 #ifdef DEV_CONTEXT
 		if (!sm_EnableTokenPrivilege(L"SE_DEBUG_NAME"))

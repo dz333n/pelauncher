@@ -21,3 +21,4 @@
 #include <memory.h>
 #include <tchar.h>
 #include <shellapi.h>
+#include <winternl.h>
