@@ -83,6 +83,7 @@ PWSTR WINAPI StrFormatByteSizeW(HWND hDlg, LONGLONG qdw, PWSTR pszBuf, UINT cchB
 	return result;
 }
 
+#ifdef DEV_CONTEXT
 BOOL sm_EnableTokenPrivilege(LPCTSTR pszPrivilege)
 {
 	HANDLE hToken = 0;
@@ -119,6 +120,7 @@ BOOL sm_EnableTokenPrivilege(LPCTSTR pszPrivilege)
 
 	return FALSE;
 }
+#endif
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
