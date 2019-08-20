@@ -4,6 +4,8 @@
 #include "stdafx.h"
 #include "resource.h"
 
+#define ARGS_LEN 1024
+
 #if defined (_M_ARM)
 #define EnvARM
 #define Unsupported
@@ -36,6 +38,7 @@ HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 
 TCHAR FilePath[MAX_PATH] = { };
+TCHAR FilePathArgs[ARGS_LEN] = { };
 LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
 
@@ -344,7 +347,9 @@ int RunPortableExecutable(HWND hDlg)
 		else wcscpy_s(current_file_path, MAX_PATH, L"pelauncher_stub.exe");
 	}
 
-	success = CreateProcessW(current_file_path, NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
+	WCHAR Args[ARGS_LEN] = { };
+	swprintf_s(Args, ARGS_LEN, L"\"%s\" %s", current_file_path, FilePathArgs);
+	success = CreateProcessW(current_file_path, Args, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
 
 	if (!success)
 		return RunPEResult;
@@ -465,12 +470,14 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	HWND hDlg = (HWND)lpParam;
 
 	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
+	GetWindowText(GetDlgItem(hDlg, IDC_EXE_ARGS), FilePathArgs, ARGS_LEN);
 
 	if (_tcslen(FilePath) <= 0) return TRUE;
 
 	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), FALSE);
+	EnableWindow(GetDlgItem(hDlg, IDC_EXE_ARGS), FALSE);
 
 	SetStatusDlg(L"Initializing...");
 
@@ -488,6 +495,7 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), TRUE);
+	EnableWindow(GetDlgItem(hDlg, IDC_EXE_ARGS), TRUE);
 
 	SetStatusInitial(hDlg);
 
@@ -526,7 +534,7 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		if (FileExists((TCHAR*)L"pelauncher_stub.exe"))
 		{
 			SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_SETCHECK, BST_CHECKED, 0);
-			SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_CHECKED, 0);
+			// SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_CHECKED, 0);
 		}
 		else 
 		{
@@ -553,6 +561,15 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 			&& LOWORD(wParam) == IDC_EXE_PATH)
 		{
 			UpdateButton(hDlg);
+			return TRUE;
+		}
+		else if (HIWORD(wParam) == BN_CLICKED
+			&& LOWORD(wParam) == IDC_RENAME_STUB)
+		{
+			if (SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_GETCHECK, 0, 0) == BST_UNCHECKED)
+			{
+				MessageBox(hDlg, L"WARNING: This function is completely broken.", L"PE Launcher", 0);
+			}
 			return TRUE;
 		}
 		else if (HIWORD(wParam) == BN_CLICKED

@@ -18,10 +18,10 @@
 #define IDLAUNCH                        1000
 #define IDC_EXE_PATH                    1001
 #define I                               1002
+#define IDC_EXE_ARGS                    1002
 #define IDC_PLATFORM                    1003
 #define IDC_EDIT3                       1007
 #define IDC_USE_STUB                    1008
-#define IDC_USE_STUB2                   1009
 #define IDC_RENAME_STUB                 1009
 #define IDC_STATIC                      -1
 
