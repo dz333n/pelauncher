@@ -23,6 +23,9 @@
 #define IDC_EDIT3                       1007
 #define IDC_USE_STUB                    1008
 #define IDC_RENAME_STUB                 1009
+#define IDC_WAIT_FOR_EXIT               1010
+#define IDC_DO_NOT_EXIT2                1011
+#define IDC_DO_NOT_EXIT                 1011
 #define IDC_STATIC                      -1
 
 // Next default values for new objects

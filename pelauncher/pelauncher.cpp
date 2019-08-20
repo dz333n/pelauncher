@@ -303,7 +303,7 @@ int RunPortableExecutable(HWND hDlg)
 	IMAGE_DOS_HEADER* const dos_header = (IMAGE_DOS_HEADER*)binary;
 	IMAGE_NT_HEADERS* const nt_header = (IMAGE_NT_HEADERS*)(binary_address + dos_header->e_lfanew);
 
-	if (nt_header->Signature != IMAGE_NT_SIGNATURE) 
+	if (nt_header->Signature != IMAGE_NT_SIGNATURE)
 	{
 		rc = -2;
 		return RunPEResult;
@@ -328,7 +328,7 @@ int RunPortableExecutable(HWND hDlg)
 	}
 	else
 	{
-		if (RenameStub) 
+		if (RenameStub)
 		{
 			GetFullPathName(FilePath, MAX_PATH, FullFilePath, NULL);
 			wchar_t* safeFileName = wcsrchr(FullFilePath, L'\\');
@@ -337,8 +337,8 @@ int RunPortableExecutable(HWND hDlg)
 			success = CopyFile(
 				L"pelauncher_stub.exe",
 				OriginalFileName,
-				FALSE); 
-			
+				FALSE);
+
 			if (!success)
 				return RunPEResult;
 
@@ -359,12 +359,12 @@ int RunPortableExecutable(HWND hDlg)
 		DeleteFile(L"delete.exe");
 
 		success = MoveFileEx(OriginalFileName, L"delete.exe", MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING);
-		
+
 		if (!success)
 			return RunPEResult;
 
-		success = DeleteFile(L"delete.exe"); 
-		
+		success = DeleteFile(L"delete.exe");
+
 		if (!success)
 			return RunPEResult;
 
@@ -458,6 +458,12 @@ int RunPortableExecutable(HWND hDlg)
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
+	if (SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_GETCHECK, 0, 0) == BST_CHECKED)
+	{
+		SetStatusDlg(L"Waiting for target exit...");
+		WaitForSingleObject(process_info.hProcess, INFINITE);
+	}
+
 	return RunPEResult;
 #else
 	MessageBox(0, L"Platform unsupported: returning -1", L"PELauncher", 0);
@@ -468,6 +474,7 @@ int RunPortableExecutable(HWND hDlg)
 DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 {
 	HWND hDlg = (HWND)lpParam;
+	BOOL WaitForExitPreviousState = FALSE;
 
 	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
 	GetWindowText(GetDlgItem(hDlg, IDC_EXE_ARGS), FilePathArgs, ARGS_LEN);
@@ -478,6 +485,9 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_ARGS), FALSE);
+	WaitForExitPreviousState = IsWindowEnabled(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT));
+	EnableWindow(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), FALSE);
+	EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
 
 	SetStatusDlg(L"Initializing...");
 
@@ -485,7 +495,8 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 
 	if (result == 0)
 	{
-		EndDialog(hDlg, 0);
+		if (SendMessage(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), BM_GETCHECK, 0, 0) != BST_CHECKED)
+			EndDialog(hDlg, 0);
 	}
 	else
 	{
@@ -496,6 +507,8 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_PATH), TRUE);
 	EnableWindow(GetDlgItem(hDlg, IDC_EXE_ARGS), TRUE);
+	EnableWindow(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), TRUE);
+	EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), WaitForExitPreviousState);
 
 	SetStatusInitial(hDlg);
 
@@ -542,6 +555,8 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 			EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), FALSE);
 		}
 
+		EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
+
 		if (RunArgument)
 		{
 			SetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), RunArgumentPath);
@@ -562,6 +577,16 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		{
 			UpdateButton(hDlg);
 			return TRUE;
+		}
+		else if (HIWORD(wParam) == BN_CLICKED
+			&& LOWORD(wParam) == IDC_DO_NOT_EXIT)
+		{
+			if (SendMessage(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), BM_GETCHECK, 0, 0) == BST_UNCHECKED)
+			{
+				SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_SETCHECK, BST_UNCHECKED, 0);
+				EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
+			}
+			else EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), TRUE);
 		}
 		else if (HIWORD(wParam) == BN_CLICKED
 			&& LOWORD(wParam) == IDC_RENAME_STUB)
