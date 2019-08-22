@@ -1,6 +1,6 @@
 # Portable Executable launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/feel-the-dz3n/pelauncher)
- 
-![image](https://user-images.githubusercontent.com/25367511/63372070-0d742a80-c38e-11e9-8e97-7315d41aa8d4.png)
+
+![image](https://user-images.githubusercontent.com/25367511/63508722-27735180-c4e3-11e9-8cee-d351832d8b34.png)
 
 # Download
 Click on [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/feel-the-dz3n/pelauncher). Click any version you want and go *Artifacts* tab to download it.
