@@ -178,19 +178,10 @@ VOID SetStatusInitial(HWND hDlg)
 
 BOOL FileExists(TCHAR* szPath)
 {
-	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind;
+	DWORD dwAttrib = GetFileAttributes(szPath);
 
-	hFind = FindFirstFile(szPath, &FindFileData);
-	if (hFind == INVALID_HANDLE_VALUE) 
-	{
-		return FALSE;
-	} 
-	else 
-	{
-		FindClose(hFind);
-		return TRUE;
-	}
+	return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+		!(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
 }
 
 VOID UpdatePath(HWND hDlg)
