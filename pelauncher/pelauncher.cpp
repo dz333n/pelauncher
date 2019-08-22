@@ -37,10 +37,11 @@
 HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 
-TCHAR FilePath[MAX_PATH] = { };
+TCHAR FilePathSafe[MAX_PATH] = { };
 TCHAR FilePathArgs[ARGS_LEN] = { };
 LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
+TCHAR StubPath[MAX_PATH] = { };
 
 typedef PWSTR(WINAPI *StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UINT cchBuf);
 
@@ -144,6 +145,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		RunArgumentPath = lpCmdLine;
 	}
 
+	INITCOMMONCONTROLSEX icce = { };
+	icce.dwSize = sizeof(icce);
+	icce.dwICC = ICC_LINK_CLASS;
+
+	InitCommonControlsEx(&icce);
+
 	DialogBox(hInst, MAKEINTRESOURCE(IDD_MAIN), NULL, (DLGPROC)DlgProc);
 
 	return 0;
@@ -188,7 +195,16 @@ BOOL FileExists(TCHAR* szPath)
 
 VOID UpdatePath(HWND hDlg)
 {
-	SetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath);
+	SetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePathSafe);
+}
+
+VOID UpdateStub(HWND hDlg)
+{
+	WCHAR str[256] = { };
+	PCWSTR StubName = wcsrchr((wchar_t*)StubPath, L'\\');
+	++StubName;
+	swprintf_s(str, 256, L"<a>%s</a>", StubName);
+	SetWindowText(GetDlgItem(hDlg, IDC_LINK_STUB), str);
 }
 
 VOID UpdateButton(HWND hDlg)
@@ -248,24 +264,15 @@ HMODULE sm_LoadNTDLLFunctions()
 }
 #endif
 
-wchar_t* RemoveFirstChar(wchar_t* input)
-{
-	int len = wcslen(input);
-	wchar_t* result = new wchar_t[len];
-
-	for (int i = 1; i < len; i++)
-		result[i-1] = input[i];
-
-	result[len-1] = '\0';
-
-	return result;
-}
-
 int RunPortableExecutable(HWND hDlg)
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
 	WCHAR LogBuf[512] = { };
 	WCHAR SizeBuf[128] = { };
+	TCHAR FilePath[MAX_PATH] = { };
+
+	if (!GetFullPathName(FilePathSafe, MAX_PATH, FilePath, NULL))
+		return GetLastError();
 
 	// Load file
 	HANDLE hFile = CreateFile(
@@ -317,59 +324,12 @@ int RunPortableExecutable(HWND hDlg)
 	SecureZeroMemory(&startup_info, sizeof(startup_info));
 	SecureZeroMemory(&process_info, sizeof(process_info));
 
-	BOOL UseStub = SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_GETCHECK, 0, 0) == BST_CHECKED;
-	BOOL RenameStub = SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_GETCHECK, 0, 0) == BST_CHECKED;
-	wchar_t current_file_path[MAX_PATH], FullFilePath[MAX_PATH];
-	wchar_t* OriginalFileName = nullptr;
-
-	if (!UseStub)
-	{
-		GetModuleFileNameW(NULL, current_file_path, MAX_PATH);
-	}
-	else
-	{
-		if (RenameStub)
-		{
-			GetFullPathName(FilePath, MAX_PATH, FullFilePath, NULL);
-			wchar_t* safeFileName = wcsrchr(FullFilePath, L'\\');
-			OriginalFileName = RemoveFirstChar(safeFileName);
-
-			success = CopyFile(
-				L"pelauncher_stub.exe",
-				OriginalFileName,
-				FALSE);
-
-			if (!success)
-				return RunPEResult;
-
-			wcscpy_s(current_file_path, MAX_PATH, OriginalFileName);
-		}
-		else wcscpy_s(current_file_path, MAX_PATH, L"pelauncher_stub.exe");
-	}
-
 	WCHAR Args[ARGS_LEN] = { };
-	swprintf_s(Args, ARGS_LEN, L"\"%s\" %s", current_file_path, FilePathArgs);
-	success = CreateProcessW(current_file_path, Args, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
+	swprintf_s(Args, ARGS_LEN, L"\"%s\" %s", StubPath, FilePathArgs);
+	success = CreateProcessW(StubPath, Args, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
 
 	if (!success)
 		return RunPEResult;
-
-	if (UseStub && RenameStub)
-	{
-		DeleteFile(L"delete.exe");
-
-		success = MoveFileEx(OriginalFileName, L"delete.exe", MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING);
-
-		if (!success)
-			return RunPEResult;
-
-		success = DeleteFile(L"delete.exe");
-
-		if (!success)
-			return RunPEResult;
-
-		swprintf_s(current_file_path, MAX_PATH, OriginalFileName);
-	}
 
 	SetStatusDlg(L"Working with instance...");
 
@@ -476,10 +436,10 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	HWND hDlg = (HWND)lpParam;
 	BOOL WaitForExitPreviousState = FALSE;
 
-	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePath, MAX_PATH);
+	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePathSafe, MAX_PATH);
 	GetWindowText(GetDlgItem(hDlg, IDC_EXE_ARGS), FilePathArgs, ARGS_LEN);
 
-	if (_tcslen(FilePath) <= 0) return TRUE;
+	if (_tcslen(FilePathSafe) <= 0) return TRUE;
 
 	EnableWindow(GetDlgItem(hDlg, IDLAUNCH), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDSELECT), FALSE);
@@ -532,6 +492,9 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 	{
 		SetStatusInitial(hDlg);
 
+		GetModuleFileNameW(NULL, StubPath, MAX_PATH);
+		UpdateStub(hDlg);
+
 #ifdef DEV_CONTEXT
 		if (!sm_EnableTokenPrivilege(L"SE_DEBUG_NAME"))
 			MessageBox(hDlg, L"Unable to get debug privilege", L"PELauncher", 0);
@@ -543,17 +506,6 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 		MessageBox(hDlg, L"Current platform is unsupported.", L"PELauncher", 0);
 #endif
 		UpdateButton(hDlg);
-
-		if (FileExists((TCHAR*)L"pelauncher_stub.exe"))
-		{
-			SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_SETCHECK, BST_CHECKED, 0);
-			// SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_CHECKED, 0);
-		}
-		else 
-		{
-			EnableWindow(GetDlgItem(hDlg, IDC_USE_STUB), FALSE);
-			EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), FALSE);
-		}
 
 		EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
 
@@ -569,6 +521,39 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 	{
 		EndDialog(hDlg, 0);
 		return TRUE;
+	}
+	else if (Msg == WM_NOTIFY)
+	{
+		switch (((NMHDR *)lParam)->code)
+		{
+			case NM_CLICK:
+			{
+				switch (wParam)
+				{
+					case IDC_LINK_STUB:
+					{
+						OPENFILENAME ofn;
+
+						ZeroMemory(&ofn, sizeof(ofn));
+						ofn.lStructSize = sizeof(ofn);
+						ofn.hwndOwner = hDlg;
+						ofn.lpstrFile = StubPath;
+						ofn.nMaxFile = sizeof(StubPath);
+						ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
+						ofn.nFilterIndex = 1;
+						ofn.lpstrFileTitle = NULL;
+						ofn.nMaxFileTitle = 0;
+						ofn.lpstrInitialDir = NULL;
+						ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+						if (GetOpenFileName(&ofn))
+							UpdateStub(hDlg);
+
+						return TRUE;
+					}
+				}
+			}
+		}
 	}
 	else if (Msg == WM_COMMAND)
 	{
@@ -587,28 +572,6 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 				EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
 			}
 			else EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), TRUE);
-		}
-		else if (HIWORD(wParam) == BN_CLICKED
-			&& LOWORD(wParam) == IDC_RENAME_STUB)
-		{
-			if (SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_GETCHECK, 0, 0) == BST_UNCHECKED)
-			{
-				MessageBox(hDlg, L"WARNING: This function is completely broken.", L"PE Launcher", 0);
-			}
-			return TRUE;
-		}
-		else if (HIWORD(wParam) == BN_CLICKED
-			&& LOWORD(wParam) == IDC_USE_STUB)
-		{
-			if (SendMessage(GetDlgItem(hDlg, IDC_USE_STUB), BM_GETCHECK, 0, 0) == BST_UNCHECKED)
-			{
-				SendMessage(GetDlgItem(hDlg, IDC_RENAME_STUB), BM_SETCHECK, BST_UNCHECKED, 0);
-				EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), FALSE);
-			}
-			else
-			{
-				EnableWindow(GetDlgItem(hDlg, IDC_RENAME_STUB), TRUE);
-			}
 
 			return TRUE;
 		}
@@ -630,8 +593,8 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 				ZeroMemory(&ofn, sizeof(ofn));
 				ofn.lStructSize = sizeof(ofn);
 				ofn.hwndOwner = hDlg;
-				ofn.lpstrFile = FilePath;
-				ofn.nMaxFile = sizeof(FilePath);
+				ofn.lpstrFile = FilePathSafe;
+				ofn.nMaxFile = sizeof(FilePathSafe);
 				ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
 				ofn.nFilterIndex = 1;
 				ofn.lpstrFileTitle = NULL;
@@ -642,7 +605,7 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 				if (GetOpenFileName(&ofn))
 					UpdatePath(hDlg);
 
-				break;
+				return TRUE;
 			}
 		}
 	}
