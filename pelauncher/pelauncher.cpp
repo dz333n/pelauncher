@@ -360,10 +360,10 @@ int RunPortableExecutable(HWND hDlg)
 
 	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
 
-	swprintf_s(LogBuf, 512, L"0x%" PRIx64 " -> image_base", (UINT64)modified_base);
+	swprintf_s(LogBuf, 512, L"0x%" PRIx64 " -> image_base [0x%" PRIx64 "]", (UINT64)modified_base, (UINT64)sizeof(image_base));
 	SetStatusDlg(LogBuf);
 
-	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, 4, NULL);
+	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, sizeof(image_base), NULL);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
