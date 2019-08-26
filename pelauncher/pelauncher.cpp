@@ -278,14 +278,14 @@ int RunPortableExecutable(HWND hDlg)
 	if (hFile == INVALID_HANDLE_VALUE)
 		return GetLastError();
 
-	DWORD fLen = GetFileSize(hFile, NULL);
+	DWORD fLen = GetFileSize(hFile, NULL), fRead;
 	char* binary = new char[fLen];
 
 	StrFormatByteSizeW(hDlg, fLen, SizeBuf, 128);
 	swprintf_s(LogBuf, 512, L"Reading %s...", SizeBuf);
 	SetStatusDlg(LogBuf);
 
-	if (!ReadFile(hFile, binary, fLen, NULL, NULL))
+	if (!ReadFile(hFile, binary, fLen, &fRead, NULL))
 	{
 		CloseHandle(hFile);
 
