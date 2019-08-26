@@ -322,10 +322,12 @@ int RunPortableExecutable(HWND hDlg)
 	if (!success)
 		return RunPEResult;
 
-	SetStatusDlg(L"Working with instance...");
+	SetStatusDlg(L"Allocating context...");
 
 	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(ctx), MEM_COMMIT, PAGE_READWRITE);
 	ctx->ContextFlags = CONTEXT_FULL;
+
+	SetStatusDlg(L"Getting context...");
 
 	success = GetThreadContext(process_info.hThread, ctx);
 
@@ -356,13 +358,19 @@ int RunPortableExecutable(HWND hDlg)
 
 	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
 
+	SetStatusDlg(L"Reading image_base...");
+
 	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, 4, NULL);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
+	SetStatusDlg(L"Allocating base...");
+
 	void* const binary_base = VirtualAllocEx(process_info.hProcess, (void*)(nt_header->OptionalHeader.ImageBase),
 		nt_header->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+
+	SetStatusDlg(L"Writing binary...");
 
 	success = WriteProcessMemory(process_info.hProcess, binary_base, binary, nt_header->OptionalHeader.SizeOfHeaders, NULL);
 
@@ -390,12 +398,14 @@ int RunPortableExecutable(HWND hDlg)
 			return FinalizeRunPE(success, rc, process_info.hProcess);
 	}
 
-	SetStatusDlg(L"Finalizing...");
+	SetStatusDlg(L"Writing base...");
 
 	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
+
+	SetStatusDlg(L"Setting thread context...");
 
 	ctx->EnvBaseReg2 = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
 
@@ -403,6 +413,8 @@ int RunPortableExecutable(HWND hDlg)
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
+
+	SetStatusDlg(L"Finalizing...");
 
 	success = ResumeThread(process_info.hThread);
 
