@@ -22,3 +22,4 @@
 #include <tchar.h>
 #include <shellapi.h>
 #include <winternl.h>
+#include <inttypes.h>
