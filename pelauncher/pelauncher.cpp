@@ -47,8 +47,9 @@ typedef PWSTR(WINAPI *StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UIN
 
 VOID Display32ErrorDialog(HWND Parent, DWORD code)
 {
-	WCHAR Buffer[512] = { };
-	WCHAR ErrorBuffer[256] = { };
+	WCHAR Buffer[512] = { }, ErrorBuffer[256] = { }, StatusBuffer[256] = { };
+
+	GetWindowText(GetDlgItem(Parent, IDC_PLATFORM), (LPWSTR)StatusBuffer, 256);
 
 	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
 	else if (code == -1) wcscpy_s(ErrorBuffer, 256, L"Wrong platform");
@@ -64,9 +65,10 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 
 	swprintf_s(
 		Buffer, 512,
-		L"Error %d - %s",
+		L"Error %d - %s\nStatus: %s",
 		code,
-		ErrorBuffer);
+		ErrorBuffer,
+		StatusBuffer);
 
 	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
 }
@@ -366,7 +368,8 @@ int RunPortableExecutable(HWND hDlg)
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	SetStatusDlg(L"Allocating base...");
+	swprintf_s(LogBuf, 512, L"Allocate base at 0x%x [0x%x]", nt_header->OptionalHeader.ImageBase, nt_header->OptionalHeader.SizeOfImage);
+	SetStatusDlg(LogBuf);
 
 	void* const binary_base = VirtualAllocEx(process_info.hProcess, (void*)(nt_header->OptionalHeader.ImageBase),
 		nt_header->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -374,7 +377,7 @@ int RunPortableExecutable(HWND hDlg)
 	if (!binary_base)
 		return FinalizeRunPE(FALSE, rc, process_info.hProcess);
 
-	swprintf_s(LogBuf, 512, L"binary -> 0x%x", (UINT)binary_base);
+	swprintf_s(LogBuf, 512, L"binary -> 0x%x [0x%x]", (UINT)binary_base, nt_header->OptionalHeader.SizeOfHeaders);
 	SetStatusDlg(LogBuf);
 
 	success = WriteProcessMemory(process_info.hProcess, binary_base, binary, nt_header->OptionalHeader.SizeOfHeaders, NULL);
@@ -394,7 +397,7 @@ int RunPortableExecutable(HWND hDlg)
 		wchar_t *converted_buf = new wchar_t[output_size];
 		int size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, converted_buf, output_size);
 
-		swprintf_s(LogBuf, 512, L"Section %s -> 0x%x", converted_buf, (UINT)virtual_base_address);
+		swprintf_s(LogBuf, 512, L"Section %s -> 0x%x [0x%x]", converted_buf, (UINT)virtual_base_address, section_header->SizeOfRawData);
 		SetStatusDlg(LogBuf);
 
 		success = WriteProcessMemory(process_info.hProcess, virtual_base_address, virtual_buffer, section_header->SizeOfRawData, 0);
@@ -403,10 +406,10 @@ int RunPortableExecutable(HWND hDlg)
 			return FinalizeRunPE(success, rc, process_info.hProcess);
 	}
 
-	swprintf_s(LogBuf, 512, L"h.ImageBase -> 0x%x", (UINT)modified_base);
+	swprintf_s(LogBuf, 512, L"h.ImageBase -> 0x%x [0x%x]", (UINT)modified_base, sizeof(DWORD));
 	SetStatusDlg(LogBuf);
 
-	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, 4, 0);
+	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, sizeof(DWORD), 0);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
