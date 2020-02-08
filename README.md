@@ -3,7 +3,7 @@
 ![image](https://user-images.githubusercontent.com/25367511/63508722-27735180-c4e3-11e9-8cee-d351832d8b34.png)
 
 # Download
-Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/feel-the-dz3n/potatochatai/build/artifacts)
+Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/feel-the-dz3n/pelauncher/build/artifacts)
 
 # What is this?
 This program allows to run any portable executable avoiding Windows checks. Examples:
