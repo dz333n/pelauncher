@@ -47,9 +47,7 @@ typedef PWSTR(WINAPI *StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UIN
 
 VOID Display32ErrorDialog(HWND Parent, DWORD code)
 {
-	WCHAR Buffer[512] = { }, ErrorBuffer[256] = { }, StatusBuffer[256] = { };
-
-	GetWindowText(GetDlgItem(Parent, IDC_PLATFORM), (LPWSTR)StatusBuffer, 256);
+	WCHAR Buffer[512] = { }, ErrorBuffer[256] = { };
 
 	if (code == 0) wcscpy_s(ErrorBuffer, 256, L"Unknown");
 	else if (code == -1) wcscpy_s(ErrorBuffer, 256, L"Wrong platform");
@@ -65,10 +63,9 @@ VOID Display32ErrorDialog(HWND Parent, DWORD code)
 
 	swprintf_s(
 		Buffer, 512,
-		L"Error %d - %s\nStatus: %s",
+		L"Error %d - %s",
 		code,
-		ErrorBuffer,
-		StatusBuffer);
+		ErrorBuffer);
 
 	MessageBoxW(Parent, Buffer, L"PE Launcher", MB_OK);
 }
@@ -158,23 +155,53 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	return 0;
 }
 
-#define SetStatusDlg(text) SetStatus(hDlg, text)
+#define AppendLogLineDlg(text) SetStatus(hDlg, text)
+
+VOID AppendLog(HWND hDlg, LPCWSTR Text)
+{
+	// get edit control from dialog
+	HWND hwndOutput = GetDlgItem(hDlg, IDC_LOGBOX);
+
+	// get new length to determine buffer size
+	int outLength = GetWindowTextLength(hwndOutput) + lstrlen(Text) + 1;
+
+	// create buffer to hold current and new text
+	TCHAR* buf = (TCHAR*)GlobalAlloc(GPTR, outLength * sizeof(TCHAR));
+	if (!buf) return;
+
+	// get existing text from edit control and put into buffer
+	GetWindowText(hwndOutput, buf, outLength);
+
+	// append the newText to the buffer
+	_tcscat_s(buf, outLength, Text);
+
+	// Set the text in the edit control
+	SetWindowText(hwndOutput, buf);
+
+	// free the buffer
+	GlobalFree(buf);
+
+	SendMessage(GetDlgItem(hDlg, IDC_LOGBOX), LOWORD(WM_VSCROLL), SB_BOTTOM, 0);
+}
 
 VOID SetStatus(HWND hDlg, LPCWSTR Text)
 {
-	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), Text);
+	AppendLog(hDlg, Text);
+	AppendLog(hDlg, L"\r\n");
 }
 
 VOID SetStatusInitial(HWND hDlg)
 {
+	AppendLog(hDlg, L"Ready. ");
+
 #if defined (Env86)
-	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: x86");
+	AppendLogLineDlg(L"Current platform: x86");
 #elif defined (Env64)
-	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: x64");
+	AppendLogLineDlg(L"Current platform: x64");
 #elif defined (EnvARM)
-	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: ARM");
+	AppendLogLineDlg(L"Current platform: ARM");
 #else
-	SetWindowText(GetDlgItem(hDlg, IDC_PLATFORM), L"Current platform: ???");
+	AppendLogLineDlg(L"Current platform: ???");
 #endif
 }
 
@@ -285,7 +312,7 @@ int RunPortableExecutable(HWND hDlg)
 
 	StrFormatByteSizeW(hDlg, fLen, SizeBuf, 128);
 	swprintf_s(LogBuf, 512, L"Reading %s...", SizeBuf);
-	SetStatusDlg(LogBuf);
+	AppendLogLineDlg(LogBuf);
 
 	if (!ReadFile(hFile, binary, fLen, &fRead, NULL))
 	{
@@ -296,7 +323,7 @@ int RunPortableExecutable(HWND hDlg)
 
 	CloseHandle(hFile);
 
-	SetStatusDlg(L"Working with headers...");
+	AppendLogLineDlg(L"Working with headers...");
 
 	int success = 1, rc = 0;
 	const uintptr_t binary_address = (uintptr_t)binary;
@@ -309,7 +336,7 @@ int RunPortableExecutable(HWND hDlg)
 		return RunPEResult;
 	}
 
-	SetStatusDlg(L"Launching new instance...");
+	AppendLogLineDlg(L"Launching new instance...");
 
 	STARTUPINFOW startup_info;
 	PROCESS_INFORMATION process_info;
@@ -324,12 +351,12 @@ int RunPortableExecutable(HWND hDlg)
 	if (!success)
 		return RunPEResult;
 
-	SetStatusDlg(L"Allocating context...");
+	AppendLogLineDlg(L"Allocating context...");
 
 	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(ctx), MEM_COMMIT, PAGE_READWRITE);
 	ctx->ContextFlags = CONTEXT_FULL;
 
-	SetStatusDlg(L"Getting context...");
+	AppendLogLineDlg(L"Getting context...");
 
 	success = GetThreadContext(process_info.hThread, ctx);
 
@@ -361,7 +388,7 @@ int RunPortableExecutable(HWND hDlg)
 	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
 
 	swprintf_s(LogBuf, 512, L"0x%" PRIx64 " -> image_base [0x%" PRIx64 "]", (UINT64)modified_base, (UINT64)sizeof(image_base));
-	SetStatusDlg(LogBuf);
+	AppendLogLineDlg(LogBuf);
 
 	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, sizeof(image_base), NULL);
 
@@ -369,7 +396,7 @@ int RunPortableExecutable(HWND hDlg)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
 	swprintf_s(LogBuf, 512, L"Allocate base at 0x%" PRIx64 " [0x%x]", (UINT64)nt_header->OptionalHeader.ImageBase, nt_header->OptionalHeader.SizeOfImage);
-	SetStatusDlg(LogBuf);
+	AppendLogLineDlg(LogBuf);
 
 	void* const binary_base = VirtualAllocEx(process_info.hProcess, (void*)(nt_header->OptionalHeader.ImageBase),
 		nt_header->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -378,7 +405,7 @@ int RunPortableExecutable(HWND hDlg)
 		return FinalizeRunPE(FALSE, rc, process_info.hProcess);
 
 	swprintf_s(LogBuf, 512, L"binary -> 0x%" PRIx64 " [0x%x]", (UINT64)binary_base, nt_header->OptionalHeader.SizeOfHeaders);
-	SetStatusDlg(LogBuf);
+	AppendLogLineDlg(LogBuf);
 
 	success = WriteProcessMemory(process_info.hProcess, binary_base, binary, nt_header->OptionalHeader.SizeOfHeaders, NULL);
 
@@ -398,7 +425,7 @@ int RunPortableExecutable(HWND hDlg)
 		int size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, converted_buf, output_size);
 
 		swprintf_s(LogBuf, 512, L"Section %s -> 0x%llu [0x%x]", converted_buf, (UINT64)virtual_base_address, section_header->SizeOfRawData);
-		SetStatusDlg(LogBuf);
+		AppendLogLineDlg(LogBuf);
 
 		success = WriteProcessMemory(process_info.hProcess, virtual_base_address, virtual_buffer, section_header->SizeOfRawData, 0);
 
@@ -407,14 +434,14 @@ int RunPortableExecutable(HWND hDlg)
 	}
 
 	swprintf_s(LogBuf, 512, L"h.ImageBase -> 0x%" PRIx64 " [0x%" PRIx64 "]", (UINT64)modified_base, (UINT64)sizeof(DWORD));
-	SetStatusDlg(LogBuf);
+	AppendLogLineDlg(LogBuf);
 
 	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, sizeof(DWORD), 0);
 
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	SetStatusDlg(L"Setting thread context...");
+	AppendLogLineDlg(L"Setting thread context...");
 
 	ctx->EnvBaseReg2 = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
 
@@ -423,7 +450,7 @@ int RunPortableExecutable(HWND hDlg)
 	if (!success)
 		return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	SetStatusDlg(L"Finalizing...");
+	AppendLogLineDlg(L"Finalizing...");
 
 	success = ResumeThread(process_info.hThread);
 
@@ -432,7 +459,7 @@ int RunPortableExecutable(HWND hDlg)
 
 	if (SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_GETCHECK, 0, 0) == BST_CHECKED)
 	{
-		SetStatusDlg(L"Waiting for target exit...");
+		AppendLogLineDlg(L"Waiting for target exit...");
 		WaitForSingleObject(process_info.hProcess, INFINITE);
 	}
 
@@ -461,7 +488,7 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 	EnableWindow(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), FALSE);
 	EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
 
-	SetStatusDlg(L"Initializing...");
+	AppendLogLineDlg(L"Initializing...");
 
 	int result = RunPortableExecutable(hDlg);
 
