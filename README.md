@@ -1,11 +1,11 @@
-# Portable Executable launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/feel-the-dz3n/pelauncher)
+# Portable Executable launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/dz333n/pelauncher)
 
 # What is this?
 
 This program lets you trick the Windows NT low-level Portable Executable (``.exe``) loader. It lets you load a valid executable and then replace its memory with any other portable executable you want, even if Windows does not like the target executable.  
 
 # Download
-Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/feel-the-dz3n/pelauncher/build/artifacts)
+Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelauncher/build/artifacts)
 
 ![image](https://user-images.githubusercontent.com/25367511/63508722-27735180-c4e3-11e9-8cee-d351832d8b34.png)
 
