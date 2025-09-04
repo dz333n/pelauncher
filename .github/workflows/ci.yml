@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master ]
   pull_request:
 
 jobs:
@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [Win32, x64]
+        platform: [x86, x64]
 
     steps:
       - name: Checkout
@@ -32,4 +32,3 @@ jobs:
         with:
           name: Debug-${{ matrix.platform }}
           path: build/Debug/${{ matrix.platform }}/
-
