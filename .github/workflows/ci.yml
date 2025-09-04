@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [x86, x64]
+        include:
+          - solution_platform: x86
+            artifact_dir: Win32
+          - solution_platform: x64
+            artifact_dir: x64
 
     steps:
       - name: Checkout
@@ -22,13 +26,15 @@ jobs:
         with:
           vs-version: '17.0'
 
-      - name: Build Debug ${{ matrix.platform }}
+      - name: Build Debug ${{ matrix.solution_platform }}
         shell: pwsh
         run: |
-          msbuild .\\pelauncher.sln /m /p:Configuration=Debug /p:Platform=${{ matrix.platform }} /p:PreferredToolArchitecture=x64 /restore
+          msbuild .\\pelauncher.sln /m /p:Configuration=Debug /p:Platform=${{ matrix.solution_platform }} /p:PreferredToolArchitecture=x64 /restore
 
-      - name: Upload artifact (Debug ${{ matrix.platform }})
+      - name: Upload artifact (Debug ${{ matrix.solution_platform }})
         uses: actions/upload-artifact@v4
         with:
-          name: Debug-${{ matrix.platform }}
-          path: build/Debug/${{ matrix.platform }}/
+          name: Debug-${{ matrix.solution_platform }}
+          path: |
+            build/Debug/${{ matrix.artifact_dir }}/
+            Debug/${{ matrix.artifact_dir }}/

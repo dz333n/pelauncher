@@ -1,11 +1,11 @@
-# Portable Executable Launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/dz333n/pelauncher)
+# Portable Executable Launcher for Windows NT [![CI](https://github.com/dz333n/pelauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/dz333n/pelauncher/actions/workflows/ci.yml)
 
 ## What is this?
 
 This tool tricks the Windows NT low‑level Portable Executable (`.exe`) loader. It starts a valid executable and then replaces its in‑memory image with another PE of your choice, even if Windows refuses to load the target executable.
 
 ## Download
-Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelauncher/build/artifacts)
+Downloads appropriate platform artifact from latest workflow: [![CI](https://github.com/dz333n/pelauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/dz333n/pelauncher/actions/workflows/ci.yml)
 
 ## Screenshots
 
