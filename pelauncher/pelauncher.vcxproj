@@ -231,12 +231,24 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pelauncher.h" />
+    <ClInclude Include="logging.h" />
+    <ClInclude Include="pe_logging.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="state.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="platform.h" />
+    <ClInclude Include="ui.h" />
+    <ClInclude Include="util.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pelauncher.cpp" />
+    <ClCompile Include="logging.cpp" />
+    <ClCompile Include="pe_logging.cpp" />
+    <ClCompile Include="state.cpp" />
+    <ClCompile Include="ui.cpp" />
+    <ClCompile Include="util.cpp" />
+    <ClCompile Include="loader.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">Create</PrecompiledHeader>
