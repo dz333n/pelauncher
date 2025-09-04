@@ -3,6 +3,9 @@
 
 #include "stdafx.h"
 #include "resource.h"
+#include <vector>
+#include <string>
+#include <limits>
 
 #define ARGS_LEN 1024
 
@@ -82,6 +85,12 @@ PWSTR WINAPI StrFormatByteSizeW(HWND hDlg, LONGLONG qdw, PWSTR pszBuf, UINT cchB
 	}
 
 	StrFormatByteSizeW_Import func = (StrFormatByteSizeW_Import)GetProcAddress(module, "StrFormatByteSizeW");
+	if (!func)
+	{
+		Display32ErrorDialog(hDlg, GetLastError());
+		FreeLibrary(module);
+		return NULL;
+	}
 
 	PWSTR result = func(qdw, pszBuf, cchBuf);
 
@@ -113,6 +122,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	InitCommonControlsEx(&icce);
 
 	DialogBox(hInst, MAKEINTRESOURCE(IDD_MAIN), NULL, (DLGPROC)DlgProc);
+
+	if (szArglist)
+		LocalFree(szArglist);
 
 	return 0;
 }
@@ -167,7 +179,7 @@ VOID SetStatusInitial(HWND hDlg)
 #endif
 }
 
-BOOL FileExists(TCHAR* szPath)
+BOOL FileExists(LPCTSTR szPath)
 {
 	DWORD dwAttrib = GetFileAttributes(szPath);
 
@@ -184,8 +196,15 @@ VOID UpdateStub(HWND hDlg)
 {
 	WCHAR str[256] = { };
 	PCWSTR StubName = wcsrchr((wchar_t*)StubPath, L'\\');
-	++StubName;
-	swprintf_s(str, 256, L"<a>%s</a>", StubName);
+	if (StubName)
+	{
+		++StubName;
+		swprintf_s(str, 256, L"<a>%s</a>", StubName);
+	}
+	else
+	{
+		swprintf_s(str, 256, L"<a>%s</a>", (wchar_t*)StubPath);
+	}
 	SetWindowText(GetDlgItem(hDlg, IDC_LINK_STUB), str);
 }
 
@@ -201,13 +220,19 @@ VOID UpdateButton(HWND hDlg)
 
 #define RunPEResult (!success ? GetLastError() : rc)
 
-DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess)
+DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess, HANDLE hThread, CONTEXT* ctx)
 {
 	DWORD result = RunPEResult;
 
 	if (IsDebuggerPresent()) DebugBreak();
 
-	if (hProcess != INVALID_HANDLE_VALUE)
+	if (ctx)
+		VirtualFree(ctx, 0, MEM_RELEASE);
+
+	if (hThread && hThread != INVALID_HANDLE_VALUE)
+		CloseHandle(hThread);
+
+	if (hProcess && hProcess != INVALID_HANDLE_VALUE)
 	{
 		TerminateProcess(hProcess, 0);
 		CloseHandle(hProcess);
@@ -231,7 +256,7 @@ int RunPortableExecutable(HWND hDlg)
 	HANDLE hFile = CreateFile(
 		FilePath,
 		GENERIC_READ,
-		NULL,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
@@ -240,18 +265,35 @@ int RunPortableExecutable(HWND hDlg)
 	if (hFile == INVALID_HANDLE_VALUE)
 		return GetLastError();
 
-	DWORD fLen = GetFileSize(hFile, NULL), fRead;
-	char* binary = new char[fLen];
+	LARGE_INTEGER fileSizeLi = { 0 };
+	if (!GetFileSizeEx(hFile, &fileSizeLi))
+	{
+		DWORD err = GetLastError();
+		CloseHandle(hFile);
+		return err;
+	}
+
+	if (fileSizeLi.QuadPart <= 0 || (unsigned long long)fileSizeLi.QuadPart > (std::numeric_limits<SIZE_T>::max)())
+	{
+		CloseHandle(hFile);
+		return ERROR_FILE_INVALID;
+	}
+
+	const SIZE_T fLen = (SIZE_T)fileSizeLi.QuadPart;
+	DWORD fRead = 0;
+	std::vector<char> binary;
+	try { binary.resize(fLen); }
+	catch (...) { CloseHandle(hFile); return ERROR_NOT_ENOUGH_MEMORY; }
 
 	StrFormatByteSizeW(hDlg, fLen, SizeBuf, 128);
 	swprintf_s(LogBuf, 512, L"Reading %s...", SizeBuf);
 	AppendLogLineDlg(LogBuf);
 
-	if (!ReadFile(hFile, binary, fLen, &fRead, NULL))
+	if (!ReadFile(hFile, binary.data(), (DWORD)fLen, &fRead, NULL) || fRead != (DWORD)fLen)
 	{
+		DWORD err = GetLastError();
 		CloseHandle(hFile);
-
-		return GetLastError();
+		return err ? err : ERROR_READ_FAULT;
 	}
 
 	CloseHandle(hFile);
@@ -259,10 +301,23 @@ int RunPortableExecutable(HWND hDlg)
 	AppendLogLineDlg(L"Working with headers...");
 
 	int success = 1, rc = 0;
-	const uintptr_t binary_address = (uintptr_t)binary;
 	// after reading the file into `binary`
-	IMAGE_DOS_HEADER* const dos = (IMAGE_DOS_HEADER*)binary;
-	BYTE* nt_base = (BYTE*)binary + dos->e_lfanew;
+	IMAGE_DOS_HEADER* const dos = (IMAGE_DOS_HEADER*)binary.data();
+
+	// validate DOS header
+	if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE)
+	{
+		rc = -2;
+		return rc;
+	}
+
+	if ((SIZE_T)dos->e_lfanew >= fLen)
+	{
+		rc = -2;
+		return rc;
+	}
+
+	BYTE* nt_base = (BYTE*)binary.data() + dos->e_lfanew;
 
 	// verify signature
 	if (((IMAGE_NT_HEADERS*)nt_base)->Signature != IMAGE_NT_SIGNATURE) {
@@ -305,6 +360,7 @@ int RunPortableExecutable(HWND hDlg)
 
 	SecureZeroMemory(&startup_info, sizeof(startup_info));
 	SecureZeroMemory(&process_info, sizeof(process_info));
+	startup_info.cb = sizeof(startup_info);
 
 	WCHAR Args[ARGS_LEN] = { };
 	swprintf_s(Args, ARGS_LEN, L"\"%s\" %s", StubPath, FilePathArgs);
@@ -327,25 +383,18 @@ int RunPortableExecutable(HWND hDlg)
 	success = GetThreadContext(process_info.hThread, ctx);
 
 	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
-
-	uintptr_t* image_base;
+		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 
 	// PEB->ImageBaseAddress location inside target process
 	void* const pebImageBaseField = (void*)(ctx->PEB_PTR_REG + PEB_IMAGEBASE_OFF);
 
-	// read (optional) existing image base
-	uintptr_t* image_base_ptr;
-	success = ReadProcessMemory(process_info.hProcess, pebImageBaseField, &image_base_ptr, sizeof(image_base_ptr), NULL);
-	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
-
 	// allocate at preferred base (no reloc handling in this loader)
 	void* const remoteBase = VirtualAllocEx(process_info.hProcess, preferredBase, sizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	if (!remoteBase) return FinalizeRunPE(FALSE, rc, process_info.hProcess);
+	if (!remoteBase) return FinalizeRunPE(FALSE, rc, process_info.hProcess, process_info.hThread, ctx);
 
 	// write headers
-	success = WriteProcessMemory(process_info.hProcess, remoteBase, binary, sizeOfHeaders, NULL);
-	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
+	success = WriteProcessMemory(process_info.hProcess, remoteBase, binary.data(), sizeOfHeaders, NULL);
+	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 
 	// write sections
 	for (WORD i = 0; i < numberOfSections; ++i) {
@@ -353,16 +402,16 @@ int RunPortableExecutable(HWND hDlg)
 		if (!sh->SizeOfRawData) continue;
 
 		void* const dst = (BYTE*)remoteBase + sh->VirtualAddress;
-		void* const src = (BYTE*)binary + sh->PointerToRawData;
+		void* const src = (BYTE*)binary.data() + sh->PointerToRawData;
 
 		success = WriteProcessMemory(process_info.hProcess, dst, src, sh->SizeOfRawData, NULL);
-		if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
+		if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 	}
 
 	// set PEB->ImageBaseAddress to actual mapping base (pointer-size aware)
 	PVOID newBase = remoteBase;
 	success = WriteProcessMemory(process_info.hProcess, pebImageBaseField, &newBase, sizeof(newBase), NULL);
-	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
+	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 
 
 	AppendLogLineDlg(L"Setting thread context...");
@@ -373,20 +422,28 @@ int RunPortableExecutable(HWND hDlg)
 	success = SetThreadContext(process_info.hThread, ctx);
 
 	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
+		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 
 	AppendLogLineDlg(L"Finalizing...");
 
 	success = ResumeThread(process_info.hThread);
 
 	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
+		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
 
 	if (SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_GETCHECK, 0, 0) == BST_CHECKED)
 	{
 		AppendLogLineDlg(L"Waiting for target exit...");
 		WaitForSingleObject(process_info.hProcess, INFINITE);
 	}
+
+	// cleanup on success
+	if (ctx)
+		VirtualFree(ctx, 0, MEM_RELEASE);
+	if (process_info.hThread && process_info.hThread != INVALID_HANDLE_VALUE)
+		CloseHandle(process_info.hThread);
+	if (process_info.hProcess && process_info.hProcess != INVALID_HANDLE_VALUE)
+		CloseHandle(process_info.hProcess);
 
 	return RunPEResult;
 #else
@@ -441,13 +498,15 @@ DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 
 VOID DoLaunch(HWND hDlg)
 {
-	CreateThread(
+	HANDLE hThread = CreateThread(
 		NULL,
 		0,
 		&ProcessThreadProc,
 		hDlg,
 		0,
 		NULL);
+	if (hThread)
+		CloseHandle(hThread);
 }
 
 LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
