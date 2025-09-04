@@ -1,13 +1,13 @@
-# Portable Executable launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/dz333n/pelauncher)
+# Portable Executable Launcher for Windows NT [![Build status](https://ci.appveyor.com/api/projects/status/1b7qta0rs4bwtpho?svg=true)](https://ci.appveyor.com/project/dz333n/pelauncher)
 
 # What is this?
 
-This program lets you trick the Windows NT low-level Portable Executable (``.exe``) loader. It lets you load a valid executable and then replace its memory with any other portable executable you want, even if Windows does not like the target executable.  
+This tool tricks the Windows NT low‑level Portable Executable (`.exe`) loader. It starts a valid executable and then replaces its in‑memory image with another PE of your choice, even if Windows refuses to load the target executable.
 
 # Download
 Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelauncher/build/artifacts)
 
-# Screenshots 
+# Screenshots
 
 ### 2025
 ![2025 screenshot](./2025_screenshot.png)
@@ -20,35 +20,35 @@ Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelaun
 
 # How does this work?
 
-1. PE Launcher launches ``stub.exe`` (any valid executable, which may be changed by the user) in the paused state
-2. Windows NT creates a process ``stub.exe`` and loads all the executable resources into memory
-3. PE Launcher reads ``target.exe`` and replaces ``stub.exe`` memory with the target resources
-5. So at this point, even though NT loaded and verified ``stub.exe``, the actual program that's loaded into memory is ``target.exe`` 
-6. Program unpauses ``stub.exe``
-7. Windows NT starts executing the app
+1. PE Launcher starts `stub.exe` (any valid executable; user configurable) in a suspended state.
+2. Windows NT creates the `stub.exe` process and loads its image into memory.
+3. PE Launcher reads `target.exe` from disk.
+4. It replaces the in‑memory image of `stub.exe` with sections/resources from `target.exe`.
+5. Although Windows NT validated and loaded `stub.exe`, the image in memory is now `target.exe`.
+6. PE Launcher resumes the process.
+7. Windows NT begins executing the app.
 
 # Why?
 
-There is no specific reason. This was made just for fun. 
+No particular reason - this was made for fun.
 
- - I can start any Windows CE application (with [WCECL](https://github.com/feel-the-dz3n/wcecl)) without editing the executable.
- - I can start Windows kernel inside user space (this most likely won't work, I only know that it fails to resolve DLLs).
- - Windows 10 refuses to launch Windows XP setup (``winnt32.exe``). PELauncher tricks the system and successfully launches a soft-locked setup executable on any Windows. However, for some reason, it failed to resolve winnt32u.dll, so an investigation is needed. 
- - It lets you run native NT executables inside Win32 user space. Fun fact: it's probably a Windows issue, but if you try to run the 32-bit version of ``smss.exe`` (for example, the Windows XP version) on Windows 11, then it's going to crash the system completely without administrator permissions.
- - It may avoid some antivirus checks.
+- Start Windows CE applications (with [WCECL](https://github.com/feel-the-dz3n/wcecl)) without modifying the executable.
+- Attempt to start the Windows kernel in user space (likely won't work; it tends to fail DLL resolution).
+- Windows 10 refuses to launch the Windows XP setup (`winnt32.exe`). PELauncher can trick the system and start this soft‑locked setup on modern Windows. However, it currently fails to resolve `winnt32u.dll` (investigation is needed)
+- Run native NT executables in Win32 user space. Fun fact: probably a Windows issue, but running the 32‑bit `smss.exe` (e.g., the Windows XP version) on Windows 11 can crash the system completely, even without administrator privileges.
+- May bypass some antivirus checks.
 
 
 # Limitations and issues
 
 1. **Shitcode**. This was shitcoded by me a few years ago, so be aware that there may be code issues and memory leaks.
-2. This program works well on Windows 10. ~~It's also known that this program runs on XP~~ (2025 update: Windows XP build doesn't work due to v141_xp toolset deprecation), but often fails. Also, the program for some reason doesn't work on Vista and 7.
+2. Compatibility: Works well on Windows 10. ~~It also ran on XP~~ (2025 update: the Windows XP build no longer works due to `v141_xp` toolset deprecation). The program does not work on Vista or 7, for some reason. (Actually, I'm not sure if the modern toolset targets Win 6.x)
  
 # Build
 
-Visual Studio 2022, latest toolset.
+Open `pelauncher.sln` in Visual Studio 2022 and build with the latest MSVC toolset.
 
-~~Visual Studio 2017 was used to create this project.~~
+~~Visual Studio 2017 was used to create this project.~~ (ported to VS2022 due to deprecations)
 
 # Credits
- - [This](https://stackoverflow.com/questions/48981582/running-portable-executable-in-memory-using-the-winapi-c-programming) question on Stackoverflow
-
+- [This](https://stackoverflow.com/questions/48981582/running-portable-executable-in-memory-using-the-winapi-c-programming) question on Stackoverflow
