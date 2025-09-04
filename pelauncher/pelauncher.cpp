@@ -10,21 +10,24 @@
 #define EnvARM
 #define Unsupported
 #define IgnoreMainCode
-#else
-#if _WIN32 || _WIN64
-#if _WIN64
+#elif defined(_M_X64) || defined(_WIN64)
 #define Env64
-#define Unsupported
-#define EnvBaseReg    Rdx
-#define EnvBaseOffset 8
-#define EnvBaseReg2   Rax // check
+// In the initial suspended thread context:
+//  - RDX points to the PEB
+//  - PEB->ImageBaseAddress is at offset 0x10 in PEB64
+//  - RCX is used by the start thunk to hold the entry address
+#define PEB_PTR_REG        Rdx
+#define PEB_IMAGEBASE_OFF  0x10
+#define ENTRY_REG          Rcx
 #else
 #define Env86
-#define EnvBaseReg    Ebx
-#define EnvBaseOffset 8
-#define EnvBaseReg2   Eax
-#endif
-#endif
+// In x86:
+//  - EBX points to the PEB
+//  - PEB->ImageBaseAddress is at offset 0x8 in PEB32
+//  - EAX is used by the start thunk to hold the entry address
+#define PEB_PTR_REG        Ebx
+#define PEB_IMAGEBASE_OFF  8
+#define ENTRY_REG          Eax
 #endif
 
 #if defined (Unsupported)
@@ -43,7 +46,7 @@ LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
 TCHAR StubPath[MAX_PATH] = { };
 
-typedef PWSTR(WINAPI *StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UINT cchBuf);
+typedef PWSTR(WINAPI* StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UINT cchBuf);
 
 VOID Display32ErrorDialog(HWND Parent, DWORD code)
 {
@@ -74,7 +77,7 @@ PWSTR WINAPI StrFormatByteSizeW(HWND hDlg, LONGLONG qdw, PWSTR pszBuf, UINT cchB
 {
 	HMODULE module = LoadLibrary(L"shlwapi.dll");
 
-	if (module == NULL) 
+	if (module == NULL)
 	{
 		Display32ErrorDialog(hDlg, GetLastError());
 		return NULL;
@@ -136,7 +139,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	hInst = hInstance; // Store instance handle in our global variable
 
 	int pNumArgs;
-	LPWSTR *szArglist = CommandLineToArgvW(lpCmdLine, &pNumArgs);
+	LPWSTR* szArglist = CommandLineToArgvW(lpCmdLine, &pNumArgs);
 
 	if (pNumArgs >= 1)
 	{
@@ -245,7 +248,7 @@ DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess)
 
 	if (IsDebuggerPresent()) DebugBreak();
 
-	if (hProcess != INVALID_HANDLE_VALUE) 
+	if (hProcess != INVALID_HANDLE_VALUE)
 	{
 		TerminateProcess(hProcess, 0);
 		CloseHandle(hProcess);
@@ -255,7 +258,7 @@ DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess)
 }
 
 #ifdef DEV_CONTEXT
-typedef NTSTATUS(NTAPI *pfnNtQueryInformationProcess)(
+typedef NTSTATUS(NTAPI* pfnNtQueryInformationProcess)(
 	IN  HANDLE ProcessHandle,
 	IN  PROCESSINFOCLASS ProcessInformationClass,
 	OUT PVOID ProcessInformation,
@@ -327,13 +330,42 @@ int RunPortableExecutable(HWND hDlg)
 
 	int success = 1, rc = 0;
 	const uintptr_t binary_address = (uintptr_t)binary;
-	IMAGE_DOS_HEADER* const dos_header = (IMAGE_DOS_HEADER*)binary;
-	IMAGE_NT_HEADERS* const nt_header = (IMAGE_NT_HEADERS*)(binary_address + dos_header->e_lfanew);
+	// after reading the file into `binary`
+	IMAGE_DOS_HEADER* const dos = (IMAGE_DOS_HEADER*)binary;
+	BYTE* nt_base = (BYTE*)binary + dos->e_lfanew;
 
-	if (nt_header->Signature != IMAGE_NT_SIGNATURE)
-	{
+	// verify signature
+	if (((IMAGE_NT_HEADERS*)nt_base)->Signature != IMAGE_NT_SIGNATURE) {
 		rc = -2;
 		return RunPEResult;
+	}
+
+	// select 32 vs 64 headers
+	bool is64 = (((IMAGE_NT_HEADERS*)nt_base)->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC);
+
+	DWORD entryRVA;
+	SIZE_T sizeOfImage, sizeOfHeaders;
+	PVOID preferredBase;
+	WORD  numberOfSections;
+	PIMAGE_SECTION_HEADER firstSection;
+
+	if (is64) {
+		auto nt = (IMAGE_NT_HEADERS64*)nt_base;
+		entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
+		sizeOfImage = nt->OptionalHeader.SizeOfImage;
+		sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
+		preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
+		numberOfSections = nt->FileHeader.NumberOfSections;
+		firstSection = IMAGE_FIRST_SECTION(nt);
+	}
+	else {
+		auto nt = (IMAGE_NT_HEADERS32*)nt_base;
+		entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
+		sizeOfImage = nt->OptionalHeader.SizeOfImage;
+		sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
+		preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
+		numberOfSections = nt->FileHeader.NumberOfSections;
+		firstSection = IMAGE_FIRST_SECTION(nt);
 	}
 
 	AppendLogLineDlg(L"Launching new instance...");
@@ -353,8 +385,12 @@ int RunPortableExecutable(HWND hDlg)
 
 	AppendLogLineDlg(L"Allocating context...");
 
-	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(ctx), MEM_COMMIT, PAGE_READWRITE);
+	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(CONTEXT), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+#if defined(Env64)
+	ctx->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+#else
 	ctx->ContextFlags = CONTEXT_FULL;
+#endif
 
 	AppendLogLineDlg(L"Getting context...");
 
@@ -385,65 +421,44 @@ int RunPortableExecutable(HWND hDlg)
 	PROCESS_BASIC_INFORMATION* pbix = (PROCESS_BASIC_INFORMATION*)pbi;
 #endif
 
-	void* const modified_base = (void*)(ctx->EnvBaseReg + EnvBaseOffset);
+	// PEB->ImageBaseAddress location inside target process
+	void* const pebImageBaseField = (void*)(ctx->PEB_PTR_REG + PEB_IMAGEBASE_OFF);
 
-	swprintf_s(LogBuf, 512, L"0x%" PRIx64 " -> image_base [0x%" PRIx64 "]", (UINT64)modified_base, (UINT64)sizeof(image_base));
-	AppendLogLineDlg(LogBuf);
+	// read (optional) existing image base
+	uintptr_t* image_base_ptr;
+	success = ReadProcessMemory(process_info.hProcess, pebImageBaseField, &image_base_ptr, sizeof(image_base_ptr), NULL);
+	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	success = ReadProcessMemory(process_info.hProcess, modified_base, &image_base, sizeof(image_base), NULL);
+	// allocate at preferred base (no reloc handling in this loader)
+	void* const remoteBase = VirtualAllocEx(process_info.hProcess, preferredBase, sizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!remoteBase) return FinalizeRunPE(FALSE, rc, process_info.hProcess);
 
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
+	// write headers
+	success = WriteProcessMemory(process_info.hProcess, remoteBase, binary, sizeOfHeaders, NULL);
+	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	swprintf_s(LogBuf, 512, L"Allocate base at 0x%" PRIx64 " [0x%x]", (UINT64)nt_header->OptionalHeader.ImageBase, nt_header->OptionalHeader.SizeOfImage);
-	AppendLogLineDlg(LogBuf);
+	// write sections
+	for (WORD i = 0; i < numberOfSections; ++i) {
+		const PIMAGE_SECTION_HEADER sh = &firstSection[i];
+		if (!sh->SizeOfRawData) continue;
 
-	void* const binary_base = VirtualAllocEx(process_info.hProcess, (void*)(nt_header->OptionalHeader.ImageBase),
-		nt_header->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+		void* const dst = (BYTE*)remoteBase + sh->VirtualAddress;
+		void* const src = (BYTE*)binary + sh->PointerToRawData;
 
-	if (!binary_base)
-		return FinalizeRunPE(FALSE, rc, process_info.hProcess);
-
-	swprintf_s(LogBuf, 512, L"binary -> 0x%" PRIx64 " [0x%x]", (UINT64)binary_base, nt_header->OptionalHeader.SizeOfHeaders);
-	AppendLogLineDlg(LogBuf);
-
-	success = WriteProcessMemory(process_info.hProcess, binary_base, binary, nt_header->OptionalHeader.SizeOfHeaders, NULL);
-
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
-
-	const uintptr_t binary_base_address = (uintptr_t)binary_base;
-
-	for (unsigned short i = 0; i < nt_header->FileHeader.NumberOfSections; ++i) {
-		IMAGE_SECTION_HEADER* section_header = (IMAGE_SECTION_HEADER*)(binary_address + dos_header->e_lfanew + 248 + (i * 40));
-		void* const virtual_base_address = (void*)(binary_base_address + section_header->VirtualAddress);
-		void* const virtual_buffer = (void*)(binary_address + section_header->PointerToRawData);
-
-		// convert name to normal type for log
-		int output_size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, NULL, 0);
-		wchar_t *converted_buf = new wchar_t[output_size];
-		int size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)section_header->Name, -1, converted_buf, output_size);
-
-		swprintf_s(LogBuf, 512, L"Section %s -> 0x%llu [0x%x]", converted_buf, (UINT64)virtual_base_address, section_header->SizeOfRawData);
-		AppendLogLineDlg(LogBuf);
-
-		success = WriteProcessMemory(process_info.hProcess, virtual_base_address, virtual_buffer, section_header->SizeOfRawData, 0);
-
-		if (!success)
-			return FinalizeRunPE(success, rc, process_info.hProcess);
+		success = WriteProcessMemory(process_info.hProcess, dst, src, sh->SizeOfRawData, NULL);
+		if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
 	}
 
-	swprintf_s(LogBuf, 512, L"h.ImageBase -> 0x%" PRIx64 " [0x%" PRIx64 "]", (UINT64)modified_base, (UINT64)sizeof(DWORD));
-	AppendLogLineDlg(LogBuf);
+	// set PEB->ImageBaseAddress to actual mapping base (pointer-size aware)
+	PVOID newBase = remoteBase;
+	success = WriteProcessMemory(process_info.hProcess, pebImageBaseField, &newBase, sizeof(newBase), NULL);
+	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess);
 
-	success = WriteProcessMemory(process_info.hProcess, modified_base, (void*)&nt_header->OptionalHeader.ImageBase, sizeof(DWORD), 0);
-
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess);
 
 	AppendLogLineDlg(L"Setting thread context...");
 
-	ctx->EnvBaseReg2 = binary_base_address + nt_header->OptionalHeader.AddressOfEntryPoint;
+	// set the entry "parameter" register used by the start thunk
+	ctx->ENTRY_REG = (DWORD_PTR)remoteBase + entryRVA;
 
 	success = SetThreadContext(process_info.hThread, ctx);
 
@@ -563,35 +578,35 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 	}
 	else if (Msg == WM_NOTIFY)
 	{
-		switch (((NMHDR *)lParam)->code)
+		switch (((NMHDR*)lParam)->code)
 		{
-			case NM_CLICK:
+		case NM_CLICK:
+		{
+			switch (wParam)
 			{
-				switch (wParam)
-				{
-					case IDC_LINK_STUB:
-					{
-						OPENFILENAME ofn;
+			case IDC_LINK_STUB:
+			{
+				OPENFILENAME ofn;
 
-						ZeroMemory(&ofn, sizeof(ofn));
-						ofn.lStructSize = sizeof(ofn);
-						ofn.hwndOwner = hDlg;
-						ofn.lpstrFile = StubPath;
-						ofn.nMaxFile = sizeof(StubPath);
-						ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
-						ofn.nFilterIndex = 1;
-						ofn.lpstrFileTitle = NULL;
-						ofn.nMaxFileTitle = 0;
-						ofn.lpstrInitialDir = NULL;
-						ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+				ZeroMemory(&ofn, sizeof(ofn));
+				ofn.lStructSize = sizeof(ofn);
+				ofn.hwndOwner = hDlg;
+				ofn.lpstrFile = StubPath;
+				ofn.nMaxFile = sizeof(StubPath);
+				ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
+				ofn.nFilterIndex = 1;
+				ofn.lpstrFileTitle = NULL;
+				ofn.nMaxFileTitle = 0;
+				ofn.lpstrInitialDir = NULL;
+				ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-						if (GetOpenFileName(&ofn))
-							UpdateStub(hDlg);
+				if (GetOpenFileName(&ofn))
+					UpdateStub(hDlg);
 
-						return TRUE;
-					}
-				}
+				return TRUE;
 			}
+			}
+		}
 		}
 	}
 	else if (Msg == WM_COMMAND)
@@ -617,35 +632,35 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 
 		switch (LOWORD(wParam))
 		{
-			case IDLAUNCH:
-				DoLaunch(hDlg);
-				return TRUE;
+		case IDLAUNCH:
+			DoLaunch(hDlg);
+			return TRUE;
 
-			case IDCANCEL:
-				EndDialog(hDlg, 0);
-				return TRUE;
+		case IDCANCEL:
+			EndDialog(hDlg, 0);
+			return TRUE;
 
-			case IDSELECT:
-			{
-				OPENFILENAME ofn;
+		case IDSELECT:
+		{
+			OPENFILENAME ofn;
 
-				ZeroMemory(&ofn, sizeof(ofn));
-				ofn.lStructSize = sizeof(ofn);
-				ofn.hwndOwner = hDlg;
-				ofn.lpstrFile = FilePathSafe;
-				ofn.nMaxFile = sizeof(FilePathSafe);
-				ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
-				ofn.nFilterIndex = 1;
-				ofn.lpstrFileTitle = NULL;
-				ofn.nMaxFileTitle = 0;
-				ofn.lpstrInitialDir = NULL;
-				ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+			ZeroMemory(&ofn, sizeof(ofn));
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = hDlg;
+			ofn.lpstrFile = FilePathSafe;
+			ofn.nMaxFile = sizeof(FilePathSafe);
+			ofn.lpstrFilter = TEXT("Executables (*.exe)\0*.exe\0All Files (*.*)\0*.*\0");
+			ofn.nFilterIndex = 1;
+			ofn.lpstrFileTitle = NULL;
+			ofn.nMaxFileTitle = 0;
+			ofn.lpstrInitialDir = NULL;
+			ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-				if (GetOpenFileName(&ofn))
-					UpdatePath(hDlg);
+			if (GetOpenFileName(&ofn))
+				UpdatePath(hDlg);
 
-				return TRUE;
-			}
+			return TRUE;
+		}
 		}
 	}
 	return 0;
