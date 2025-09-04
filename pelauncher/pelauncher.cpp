@@ -523,7 +523,10 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 #endif
 		UpdateButton(hDlg);
 
-		EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), FALSE);
+		// Default: keep launcher open and wait for target exit
+		SendMessage(GetDlgItem(hDlg, IDC_DO_NOT_EXIT), BM_SETCHECK, BST_CHECKED, 0);
+		EnableWindow(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), TRUE);
+		SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_SETCHECK, BST_CHECKED, 0);
 
 		if (RunArgument)
 		{
