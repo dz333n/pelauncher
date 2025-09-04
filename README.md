@@ -7,7 +7,16 @@ This program lets you trick the Windows NT low-level Portable Executable (``.exe
 # Download
 Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelauncher/build/artifacts)
 
-![image](https://user-images.githubusercontent.com/25367511/63508722-27735180-c4e3-11e9-8cee-d351832d8b34.png)
+# Screenshots 
+
+### 2025
+![2025 screenshot](./2025_screenshot.png)
+
+### 2020
+![2020 screenshot](./2020_screenshot.png)
+
+### 2019
+![2019 screenshot](./2019_screenshot.png)
 
 # How does this work?
 
@@ -21,7 +30,6 @@ Visit [artifacts page on AppVeyor](https://ci.appveyor.com/project/dz333n/pelaun
 # Why?
 
 There is no specific reason. This was made just for fun. 
-
 
  - I can start any Windows CE application (with [WCECL](https://github.com/feel-the-dz3n/wcecl)) without editing the executable.
  - I can start Windows kernel inside user space (this most likely won't work, I only know that it fails to resolve DLLs).
@@ -44,10 +52,3 @@ Visual Studio 2022, latest toolset.
 # Credits
  - [This](https://stackoverflow.com/questions/48981582/running-portable-executable-in-memory-using-the-winapi-c-programming) question on Stackoverflow
 
-# Interesting fact
-
-Initially, this program was made in VC6 for compatibility with old systems, like Windows NT 3.51:
-
-![image](https://user-images.githubusercontent.com/25367511/63433018-fe8f8580-c42a-11e9-818c-1f59e563016f.png)
-
-But then the VS2017 solution was force-pushed instead of VC6 commits.
