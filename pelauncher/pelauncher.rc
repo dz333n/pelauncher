@@ -1,5 +1,7 @@
-﻿// Microsoft Visual C++ generated resource script.
+// Microsoft Visual C++ generated resource script.
 //
+#pragma code_page(65001)
+
 #include "resource.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
@@ -26,25 +28,25 @@ LANGUAGE LANG_NEUTRAL, 0x8
 // Dialog
 //
 
-IDD_MAIN DIALOGEX 0, 0, 315, 204
+IDD_MAIN DIALOGEX 0, 0, 387, 205
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "PE Launcher (https://github.com/dz333n/pelauncher)"
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
-    DEFPUSHBUTTON   "Launch",IDLAUNCH,143,106,50,14
-    PUSHBUTTON      "Cancel",IDCANCEL,197,106,50,14
-    PUSHBUTTON      "Select",IDSELECT,255,106,50,14
-    EDITTEXT        IDC_EXE_PATH,58,36,247,14,ES_AUTOHSCROLL
-    LTEXT           "Type the name of a program and PE Launcher will run it bypassing Windows PE loader.",IDC_STATIC,57,10,248,22
+    DEFPUSHBUTTON   "Launch",IDLAUNCH,225,106,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,276,106,50,14
+    PUSHBUTTON      "Select",IDSELECT,327,106,50,14
+    EDITTEXT        IDC_EXE_PATH,56,36,321,14,ES_AUTOHSCROLL
+    LTEXT           "Type the name of a program and PE Launcher will run it bypassing Windows PE loader.",IDC_STATIC,35,10,342,22
     ICON            IDI_SMALL,IDC_STATIC,10,10,20,20
-    EDITTEXT        IDC_EXE_ARGS,58,53,247,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EXE_ARGS,56,53,321,14,ES_AUTOHSCROLL
     RTEXT           "Arguments",IDC_STATIC,10,56,40,8
     RTEXT           "Path",IDC_STATIC,10,40,40,8
     CONTROL         "Wait for target exit",IDC_WAIT_FOR_EXIT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,161,87,79,10
     CONTROL         "Do not exit after launching",IDC_DO_NOT_EXIT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,56,87,102,10
     LTEXT           "Will be started as:",IDC_STATIC,56,72,61,8
     CONTROL         "<a>executable here</a>",IDC_LINK_STUB,"SysLink",WS_TABSTOP,114,72,149,10
-    EDITTEXT        IDC_LOGBOX,10,126,295,68,ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL
+    EDITTEXT        IDC_LOGBOX,10,127,367,68,ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL
 END
 
 
@@ -73,9 +75,9 @@ BEGIN
     IDD_MAIN, DIALOG
     BEGIN
         LEFTMARGIN, 10
-        RIGHTMARGIN, 305
+        RIGHTMARGIN, 377
         TOPMARGIN, 10
-        BOTTOMMARGIN, 194
+        BOTTOMMARGIN, 195
     END
 END
 #endif    // APSTUDIO_INVOKED

@@ -6,6 +6,8 @@
 #include <vector>
 #include <string>
 #include <limits>
+#include <stdarg.h>
+#include <stdio.h>
 
 #define ARGS_LEN 1024
 
@@ -41,11 +43,16 @@
 HINSTANCE hInst;								// current instance
 LRESULT CALLBACK	DlgProc(HWND, UINT, WPARAM, LPARAM);
 
+// Forward decls for logging utilities used early
+VOID AppendLog(HWND hDlg, LPCWSTR Text);
+VOID SetStatus(HWND hDlg, LPCWSTR Text);
+
 TCHAR FilePathSafe[MAX_PATH] = { };
 TCHAR FilePathArgs[ARGS_LEN] = { };
 LPWSTR RunArgumentPath;
 BOOL RunArgument = FALSE;
 TCHAR StubPath[MAX_PATH] = { };
+HFONT g_hLogFont = NULL;
 
 typedef PWSTR(WINAPI* StrFormatByteSizeW_Import)(LONGLONG qdw, PWSTR pszBuf, UINT cchBuf);
 
@@ -130,6 +137,132 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 }
 
 #define AppendLogLineDlg(text) SetStatus(hDlg, text)
+
+// Small printf-style logger
+static VOID Logf(HWND hDlg, LPCWSTR fmt, ...)
+{
+    WCHAR buf[1024] = { };
+    va_list args;
+    va_start(args, fmt);
+    vswprintf_s(buf, _countof(buf) - 1, fmt, args);
+    va_end(args);
+    SetStatus(hDlg, buf);
+}
+
+// Map for data directory names
+static LPCWSTR DirName(UINT i)
+{
+    switch (i)
+    {
+    case IMAGE_DIRECTORY_ENTRY_EXPORT: return L"EXPORT";
+    case IMAGE_DIRECTORY_ENTRY_IMPORT: return L"IMPORT";
+    case IMAGE_DIRECTORY_ENTRY_RESOURCE: return L"RESOURCE";
+    case IMAGE_DIRECTORY_ENTRY_EXCEPTION: return L"EXCEPTION";
+    case IMAGE_DIRECTORY_ENTRY_SECURITY: return L"SECURITY";
+    case IMAGE_DIRECTORY_ENTRY_BASERELOC: return L"BASERELOC";
+    case IMAGE_DIRECTORY_ENTRY_DEBUG: return L"DEBUG";
+    case IMAGE_DIRECTORY_ENTRY_ARCHITECTURE: return L"ARCHITECTURE";
+    case IMAGE_DIRECTORY_ENTRY_GLOBALPTR: return L"GLOBALPTR";
+    case IMAGE_DIRECTORY_ENTRY_TLS: return L"TLS";
+    case IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG: return L"LOAD_CONFIG";
+    case IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT: return L"BOUND_IMPORT";
+    case IMAGE_DIRECTORY_ENTRY_IAT: return L"IAT";
+    case IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT: return L"DELAY_IMPORT";
+    case IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR: return L"COM_DESCRIPTOR";
+    default: return L"UNKNOWN";
+    }
+}
+
+static VOID LogDosHeader(HWND hDlg, const IMAGE_DOS_HEADER* dos)
+{
+    if (!dos) return;
+    Logf(hDlg, L"DOS Header: e_magic=0x%04X e_lfanew=0x%08X", dos->e_magic, (UINT)dos->e_lfanew);
+}
+
+static VOID LogFileHeader(HWND hDlg, const IMAGE_FILE_HEADER* fh)
+{
+    if (!fh) return;
+    Logf(hDlg, L"FileHeader: Machine=0x%04X Sections=%u TimeDateStamp=0x%08X",
+        fh->Machine, fh->NumberOfSections, fh->TimeDateStamp);
+    Logf(hDlg, L"  SizeOfOptionalHeader=%u Characteristics=0x%04X",
+        fh->SizeOfOptionalHeader, fh->Characteristics);
+}
+
+static VOID LogOptionalHeader32(HWND hDlg, const IMAGE_OPTIONAL_HEADER32* oh)
+{
+    if (!oh) return;
+    Logf(hDlg, L"OptionalHeader32: Magic=0x%04X Linker=%u.%u EntryRVA=0x%08X",
+        oh->Magic, oh->MajorLinkerVersion, oh->MinorLinkerVersion, oh->AddressOfEntryPoint);
+    Logf(hDlg, L"  BaseOfCode=0x%08X BaseOfData=0x%08X", oh->BaseOfCode, oh->BaseOfData);
+    Logf(hDlg, L"  ImageBase=0x%08X SectionAlign=0x%X FileAlign=0x%X",
+        oh->ImageBase, oh->SectionAlignment, oh->FileAlignment);
+    Logf(hDlg, L"  SizeOfImage=0x%X SizeOfHeaders=0x%X Checksum=0x%X",
+        oh->SizeOfImage, oh->SizeOfHeaders, oh->CheckSum);
+    Logf(hDlg, L"  Subsystem=%u DllCharacteristics=0x%04X",
+        oh->Subsystem, oh->DllCharacteristics);
+    Logf(hDlg, L"  OSVer=%u.%u ImgVer=%u.%u SubsysVer=%u.%u",
+        oh->MajorOperatingSystemVersion, oh->MinorOperatingSystemVersion,
+        oh->MajorImageVersion, oh->MinorImageVersion,
+        oh->MajorSubsystemVersion, oh->MinorSubsystemVersion);
+    Logf(hDlg, L"  SizeOfStackReserve=0x%X SizeOfStackCommit=0x%X",
+        oh->SizeOfStackReserve, oh->SizeOfStackCommit);
+    Logf(hDlg, L"  SizeOfHeapReserve=0x%X SizeOfHeapCommit=0x%X",
+        oh->SizeOfHeapReserve, oh->SizeOfHeapCommit);
+    UINT maxDirs = (oh->NumberOfRvaAndSizes < IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
+        ? oh->NumberOfRvaAndSizes
+        : IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
+    for (UINT i = 0; i < maxDirs; ++i)
+    {
+        const auto& d = oh->DataDirectory[i];
+        if (d.VirtualAddress || d.Size)
+            Logf(hDlg, L"  DataDir[%02u] %-14s RVA=0x%08X Size=0x%08X", i, DirName(i), d.VirtualAddress, d.Size);
+    }
+}
+
+static VOID LogOptionalHeader64(HWND hDlg, const IMAGE_OPTIONAL_HEADER64* oh)
+{
+    if (!oh) return;
+    Logf(hDlg, L"OptionalHeader64: Magic=0x%04X Linker=%u.%u EntryRVA=0x%08X",
+        oh->Magic, oh->MajorLinkerVersion, oh->MinorLinkerVersion, oh->AddressOfEntryPoint);
+    Logf(hDlg, L"  BaseOfCode=0x%08X", oh->BaseOfCode);
+    Logf(hDlg, L"  ImageBase=0x%016llX SectionAlign=0x%X FileAlign=0x%X",
+        (unsigned long long)oh->ImageBase, oh->SectionAlignment, oh->FileAlignment);
+    Logf(hDlg, L"  SizeOfImage=0x%llX SizeOfHeaders=0x%X Checksum=0x%X",
+        (unsigned long long)oh->SizeOfImage, oh->SizeOfHeaders, oh->CheckSum);
+    Logf(hDlg, L"  Subsystem=%u DllCharacteristics=0x%04X",
+        oh->Subsystem, oh->DllCharacteristics);
+    Logf(hDlg, L"  OSVer=%u.%u ImgVer=%u.%u SubsysVer=%u.%u",
+        oh->MajorOperatingSystemVersion, oh->MinorOperatingSystemVersion,
+        oh->MajorImageVersion, oh->MinorImageVersion,
+        oh->MajorSubsystemVersion, oh->MinorSubsystemVersion);
+    Logf(hDlg, L"  SizeOfStackReserve=0x%llX SizeOfStackCommit=0x%llX",
+        (unsigned long long)oh->SizeOfStackReserve, (unsigned long long)oh->SizeOfStackCommit);
+    Logf(hDlg, L"  SizeOfHeapReserve=0x%llX SizeOfHeapCommit=0x%llX",
+        (unsigned long long)oh->SizeOfHeapReserve, (unsigned long long)oh->SizeOfHeapCommit);
+    UINT maxDirs = (oh->NumberOfRvaAndSizes < IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
+        ? oh->NumberOfRvaAndSizes
+        : IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
+    for (UINT i = 0; i < maxDirs; ++i)
+    {
+        const auto& d = oh->DataDirectory[i];
+        if (d.VirtualAddress || d.Size)
+            Logf(hDlg, L"  DataDir[%02u] %-14s RVA=0x%08X Size=0x%08X", i, DirName(i), d.VirtualAddress, d.Size);
+    }
+}
+
+static VOID LogSections(HWND hDlg, const IMAGE_SECTION_HEADER* firstSection, WORD numberOfSections)
+{
+    if (!firstSection || !numberOfSections) return;
+    Logf(hDlg, L"Sections (%u):", numberOfSections);
+    for (WORD i = 0; i < numberOfSections; ++i)
+    {
+        const IMAGE_SECTION_HEADER& sh = firstSection[i];
+        char nameA[9] = { 0 };
+        memcpy(nameA, sh.Name, 8); // ANSI 8-byte name, not necessarily null-terminated
+        Logf(hDlg, L"  %2u: %-8hs VA=0x%08X VSz=0x%08X RawPtr=0x%08X RawSz=0x%08X Ch=0x%08X",
+            i, nameA, sh.VirtualAddress, sh.Misc.VirtualSize, sh.PointerToRawData, sh.SizeOfRawData, sh.Characteristics);
+    }
+}
 
 VOID AppendLog(HWND hDlg, LPCWSTR Text)
 {
@@ -245,12 +378,18 @@ DWORD FinalizeRunPE(int success, int rc, HANDLE hProcess, HANDLE hThread, CONTEX
 int RunPortableExecutable(HWND hDlg)
 {
 #ifndef IgnoreMainCode // to keep build ok even if broken
-	WCHAR LogBuf[512] = { };
-	WCHAR SizeBuf[128] = { };
-	TCHAR FilePath[MAX_PATH] = { };
+    WCHAR LogBuf[512] = { };
+    WCHAR SizeBuf[128] = { };
+    TCHAR FilePath[MAX_PATH] = { };
 
-	if (!GetFullPathName(FilePathSafe, MAX_PATH, FilePath, NULL))
-		return GetLastError();
+    if (!GetFullPathName(FilePathSafe, MAX_PATH, FilePath, NULL))
+    {
+        DWORD err = GetLastError();
+        Logf(hDlg, L"GetFullPathName failed: %u", err);
+        return err;
+    }
+
+    Logf(hDlg, L"Target: %s", FilePath);
 
 	// Load file
 	HANDLE hFile = CreateFile(
@@ -262,22 +401,28 @@ int RunPortableExecutable(HWND hDlg)
 		FILE_ATTRIBUTE_NORMAL,
 		NULL);
 
-	if (hFile == INVALID_HANDLE_VALUE)
-		return GetLastError();
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
+        DWORD err = GetLastError();
+        Logf(hDlg, L"CreateFile failed: %u", err);
+        return err;
+    }
 
 	LARGE_INTEGER fileSizeLi = { 0 };
 	if (!GetFileSizeEx(hFile, &fileSizeLi))
 	{
 		DWORD err = GetLastError();
-		CloseHandle(hFile);
-		return err;
-	}
+        CloseHandle(hFile);
+        Logf(hDlg, L"GetFileSizeEx failed: %u", err);
+        return err;
+    }
 
 	if (fileSizeLi.QuadPart <= 0 || (unsigned long long)fileSizeLi.QuadPart > (std::numeric_limits<SIZE_T>::max)())
 	{
-		CloseHandle(hFile);
-		return ERROR_FILE_INVALID;
-	}
+        CloseHandle(hFile);
+        Logf(hDlg, L"File size invalid or too large");
+        return ERROR_FILE_INVALID;
+    }
 
 	const SIZE_T fLen = (SIZE_T)fileSizeLi.QuadPart;
 	DWORD fRead = 0;
@@ -289,44 +434,54 @@ int RunPortableExecutable(HWND hDlg)
 	swprintf_s(LogBuf, 512, L"Reading %s...", SizeBuf);
 	AppendLogLineDlg(LogBuf);
 
-	if (!ReadFile(hFile, binary.data(), (DWORD)fLen, &fRead, NULL) || fRead != (DWORD)fLen)
-	{
-		DWORD err = GetLastError();
-		CloseHandle(hFile);
-		return err ? err : ERROR_READ_FAULT;
-	}
+    if (!ReadFile(hFile, binary.data(), (DWORD)fLen, &fRead, NULL) || fRead != (DWORD)fLen)
+    {
+        DWORD err = GetLastError();
+        CloseHandle(hFile);
+        Logf(hDlg, L"ReadFile failed or short read: %u (read=%u expected=%u)", err, fRead, (DWORD)fLen);
+        return err ? err : ERROR_READ_FAULT;
+    }
 
 	CloseHandle(hFile);
 
-	AppendLogLineDlg(L"Working with headers...");
+    AppendLogLineDlg(L"Working with headers...");
 
 	int success = 1, rc = 0;
 	// after reading the file into `binary`
 	IMAGE_DOS_HEADER* const dos = (IMAGE_DOS_HEADER*)binary.data();
 
 	// validate DOS header
-	if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE)
-	{
-		rc = -2;
-		return rc;
-	}
+    if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE)
+    {
+        rc = -2;
+        Logf(hDlg, L"Invalid DOS header signature: 0x%04X", dos ? dos->e_magic : 0);
+        return rc;
+    }
 
-	if ((SIZE_T)dos->e_lfanew >= fLen)
-	{
-		rc = -2;
-		return rc;
-	}
+    LogDosHeader(hDlg, dos);
+
+    if ((SIZE_T)dos->e_lfanew >= fLen)
+    {
+        rc = -2;
+        Logf(hDlg, L"e_lfanew out of range: 0x%08X (file len=%llu)", (UINT)dos->e_lfanew, (unsigned long long)fLen);
+        return rc;
+    }
 
 	BYTE* nt_base = (BYTE*)binary.data() + dos->e_lfanew;
 
 	// verify signature
-	if (((IMAGE_NT_HEADERS*)nt_base)->Signature != IMAGE_NT_SIGNATURE) {
-		rc = -2;
-		return RunPEResult;
-	}
+    if (((IMAGE_NT_HEADERS*)nt_base)->Signature != IMAGE_NT_SIGNATURE) {
+        rc = -2;
+        Logf(hDlg, L"Invalid NT signature: 0x%08X", ((IMAGE_NT_HEADERS*)nt_base)->Signature);
+        return RunPEResult;
+    }
 
 	// select 32 vs 64 headers
-	bool is64 = (((IMAGE_NT_HEADERS*)nt_base)->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC);
+    bool is64 = (((IMAGE_NT_HEADERS*)nt_base)->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC);
+    Logf(hDlg, L"NT Headers: Signature=0x%08X Magic=0x%04X (is64=%d)",
+        ((IMAGE_NT_HEADERS*)nt_base)->Signature,
+        ((IMAGE_NT_HEADERS*)nt_base)->OptionalHeader.Magic,
+        is64 ? 1 : 0);
 
 	DWORD entryRVA;
 	SIZE_T sizeOfImage, sizeOfHeaders;
@@ -334,24 +489,30 @@ int RunPortableExecutable(HWND hDlg)
 	WORD  numberOfSections;
 	PIMAGE_SECTION_HEADER firstSection;
 
-	if (is64) {
-		auto nt = (IMAGE_NT_HEADERS64*)nt_base;
-		entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
-		sizeOfImage = nt->OptionalHeader.SizeOfImage;
-		sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
-		preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
-		numberOfSections = nt->FileHeader.NumberOfSections;
-		firstSection = IMAGE_FIRST_SECTION(nt);
-	}
-	else {
-		auto nt = (IMAGE_NT_HEADERS32*)nt_base;
-		entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
-		sizeOfImage = nt->OptionalHeader.SizeOfImage;
-		sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
-		preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
-		numberOfSections = nt->FileHeader.NumberOfSections;
-		firstSection = IMAGE_FIRST_SECTION(nt);
-	}
+    if (is64) {
+        auto nt = (IMAGE_NT_HEADERS64*)nt_base;
+        LogFileHeader(hDlg, &nt->FileHeader);
+        LogOptionalHeader64(hDlg, &nt->OptionalHeader);
+        entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
+        sizeOfImage = nt->OptionalHeader.SizeOfImage;
+        sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
+        preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
+        numberOfSections = nt->FileHeader.NumberOfSections;
+        firstSection = IMAGE_FIRST_SECTION(nt);
+    }
+    else {
+        auto nt = (IMAGE_NT_HEADERS32*)nt_base;
+        LogFileHeader(hDlg, &nt->FileHeader);
+        LogOptionalHeader32(hDlg, &nt->OptionalHeader);
+        entryRVA = nt->OptionalHeader.AddressOfEntryPoint;
+        sizeOfImage = nt->OptionalHeader.SizeOfImage;
+        sizeOfHeaders = nt->OptionalHeader.SizeOfHeaders;
+        preferredBase = (PVOID)(ULONG_PTR)nt->OptionalHeader.ImageBase;
+        numberOfSections = nt->FileHeader.NumberOfSections;
+        firstSection = IMAGE_FIRST_SECTION(nt);
+    }
+
+    LogSections(hDlg, firstSection, numberOfSections);
 
 	AppendLogLineDlg(L"Launching new instance...");
 
@@ -364,78 +525,101 @@ int RunPortableExecutable(HWND hDlg)
 
 	WCHAR Args[ARGS_LEN] = { };
 	swprintf_s(Args, ARGS_LEN, L"\"%s\" %s", StubPath, FilePathArgs);
-	success = CreateProcessW(StubPath, Args, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
+    Logf(hDlg, L"CreateProcess: '%s' args='%s'", StubPath, Args);
+    success = CreateProcessW(StubPath, Args, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup_info, &process_info);
 
-	if (!success)
-		return RunPEResult;
+    if (!success)
+    {
+        DWORD err = GetLastError();
+        Logf(hDlg, L"CreateProcess failed: %u", err);
+        return RunPEResult;
+    }
 
 	AppendLogLineDlg(L"Allocating context...");
 
-	CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(CONTEXT), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    CONTEXT* const ctx = (CONTEXT*)VirtualAlloc(NULL, sizeof(CONTEXT), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 #if defined(Env64)
-	ctx->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    if (!ctx) { Logf(hDlg, L"VirtualAlloc for CONTEXT failed: %u", GetLastError()); return FinalizeRunPE(FALSE, rc, process_info.hProcess, process_info.hThread, NULL); }
+    ctx->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
 #else
-	ctx->ContextFlags = CONTEXT_FULL;
+    if (!ctx) { Logf(hDlg, L"VirtualAlloc for CONTEXT failed: %u", GetLastError()); return FinalizeRunPE(FALSE, rc, process_info.hProcess, process_info.hThread, NULL); }
+    ctx->ContextFlags = CONTEXT_FULL;
 #endif
 
 	AppendLogLineDlg(L"Getting context...");
 
-	success = GetThreadContext(process_info.hThread, ctx);
+    success = GetThreadContext(process_info.hThread, ctx);
 
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    if (!success)
+    {
+        Logf(hDlg, L"GetThreadContext failed: %u", GetLastError());
+        return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    }
 
 	// PEB->ImageBaseAddress location inside target process
-	void* const pebImageBaseField = (void*)(ctx->PEB_PTR_REG + PEB_IMAGEBASE_OFF);
+    void* const pebImageBaseField = (void*)(ctx->PEB_PTR_REG + PEB_IMAGEBASE_OFF);
+    Logf(hDlg, L"PEB ptr reg=0x%p, ImageBase field=0x%p", (void*)ctx->PEB_PTR_REG, pebImageBaseField);
 
 	// allocate at preferred base (no reloc handling in this loader)
-	void* const remoteBase = VirtualAllocEx(process_info.hProcess, preferredBase, sizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	if (!remoteBase) return FinalizeRunPE(FALSE, rc, process_info.hProcess, process_info.hThread, ctx);
+    Logf(hDlg, L"Allocating remote image: preferred=0x%p size=0x%llX", preferredBase, sizeOfImage);
+    void* const remoteBase = VirtualAllocEx(process_info.hProcess, preferredBase, sizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!remoteBase) { Logf(hDlg, L"VirtualAllocEx failed: %u", GetLastError()); return FinalizeRunPE(FALSE, rc, process_info.hProcess, process_info.hThread, ctx); }
+    Logf(hDlg, L"Remote base: 0x%p", remoteBase);
 
 	// write headers
-	success = WriteProcessMemory(process_info.hProcess, remoteBase, binary.data(), sizeOfHeaders, NULL);
-	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    success = WriteProcessMemory(process_info.hProcess, remoteBase, binary.data(), sizeOfHeaders, NULL);
+    if (!success) { Logf(hDlg, L"Write headers failed: %u", GetLastError()); return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx); }
 
 	// write sections
-	for (WORD i = 0; i < numberOfSections; ++i) {
-		const PIMAGE_SECTION_HEADER sh = &firstSection[i];
-		if (!sh->SizeOfRawData) continue;
+    for (WORD i = 0; i < numberOfSections; ++i) {
+        const PIMAGE_SECTION_HEADER sh = &firstSection[i];
+        if (!sh->SizeOfRawData) continue;
 
-		void* const dst = (BYTE*)remoteBase + sh->VirtualAddress;
-		void* const src = (BYTE*)binary.data() + sh->PointerToRawData;
+        void* const dst = (BYTE*)remoteBase + sh->VirtualAddress;
+        void* const src = (BYTE*)binary.data() + sh->PointerToRawData;
 
-		success = WriteProcessMemory(process_info.hProcess, dst, src, sh->SizeOfRawData, NULL);
-		if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
-	}
+        success = WriteProcessMemory(process_info.hProcess, dst, src, sh->SizeOfRawData, NULL);
+        if (!success) { Logf(hDlg, L"Section write failed idx=%u: %u", i, GetLastError()); return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx); }
+    }
 
 	// set PEB->ImageBaseAddress to actual mapping base (pointer-size aware)
 	PVOID newBase = remoteBase;
-	success = WriteProcessMemory(process_info.hProcess, pebImageBaseField, &newBase, sizeof(newBase), NULL);
-	if (!success) return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    success = WriteProcessMemory(process_info.hProcess, pebImageBaseField, &newBase, sizeof(newBase), NULL);
+    if (!success) { Logf(hDlg, L"Write PEB ImageBase failed: %u", GetLastError()); return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx); }
 
 
 	AppendLogLineDlg(L"Setting thread context...");
 
 	// set the entry "parameter" register used by the start thunk
-	ctx->ENTRY_REG = (DWORD_PTR)remoteBase + entryRVA;
+    ctx->ENTRY_REG = (DWORD_PTR)remoteBase + entryRVA;
+    Logf(hDlg, L"Entry point set to 0x%p", (void*)(ctx->ENTRY_REG));
 
-	success = SetThreadContext(process_info.hThread, ctx);
+    success = SetThreadContext(process_info.hThread, ctx);
 
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    if (!success)
+    {
+        Logf(hDlg, L"SetThreadContext failed: %u", GetLastError());
+        return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    }
 
 	AppendLogLineDlg(L"Finalizing...");
 
-	success = ResumeThread(process_info.hThread);
+    success = ResumeThread(process_info.hThread);
 
-	if (!success)
-		return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    if (!success)
+    {
+        Logf(hDlg, L"ResumeThread failed: %u", GetLastError());
+        return FinalizeRunPE(success, rc, process_info.hProcess, process_info.hThread, ctx);
+    }
 
-	if (SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_GETCHECK, 0, 0) == BST_CHECKED)
-	{
-		AppendLogLineDlg(L"Waiting for target exit...");
-		WaitForSingleObject(process_info.hProcess, INFINITE);
-	}
+    if (SendMessage(GetDlgItem(hDlg, IDC_WAIT_FOR_EXIT), BM_GETCHECK, 0, 0) == BST_CHECKED)
+    {
+        AppendLogLineDlg(L"Waiting for target exit...");
+        WaitForSingleObject(process_info.hProcess, INFINITE);
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(process_info.hProcess, &exitCode))
+            Logf(hDlg, L"Target exited with code: %u (0x%08X)", exitCode, exitCode);
+    }
 
 	// cleanup on success
 	if (ctx)
@@ -454,11 +638,16 @@ int RunPortableExecutable(HWND hDlg)
 
 DWORD WINAPI ProcessThreadProc(CONST LPVOID lpParam)
 {
-	HWND hDlg = (HWND)lpParam;
-	BOOL WaitForExitPreviousState = FALSE;
+    HWND hDlg = (HWND)lpParam;
+    BOOL WaitForExitPreviousState = FALSE;
 
-	GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePathSafe, MAX_PATH);
-	GetWindowText(GetDlgItem(hDlg, IDC_EXE_ARGS), FilePathArgs, ARGS_LEN);
+    GetWindowText(GetDlgItem(hDlg, IDC_EXE_PATH), FilePathSafe, MAX_PATH);
+    GetWindowText(GetDlgItem(hDlg, IDC_EXE_ARGS), FilePathArgs, ARGS_LEN);
+
+    if (_tcslen(FilePathSafe) > 0)
+        Logf(hDlg, L"Selected file: %s", FilePathSafe);
+    if (_tcslen(FilePathArgs) > 0)
+        Logf(hDlg, L"Arguments: %s", FilePathArgs);
 
 	if (_tcslen(FilePathSafe) <= 0) return TRUE;
 
@@ -511,9 +700,25 @@ VOID DoLaunch(HWND hDlg)
 
 LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
-	if (Msg == WM_INITDIALOG)
-	{
-		SetStatusInitial(hDlg);
+    if (Msg == WM_INITDIALOG)
+    {
+        SetStatusInitial(hDlg);
+
+        // Set log box font to Courier New for better readability
+        if (!g_hLogFont)
+        {
+            HDC hdc = GetDC(hDlg);
+            int height = -MulDiv(10, GetDeviceCaps(hdc, LOGPIXELSY), 72); // ~10pt
+            ReleaseDC(hDlg, hdc);
+            g_hLogFont = CreateFont(
+                height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                FIXED_PITCH | FF_MODERN, L"Courier New");
+        }
+        if (g_hLogFont)
+        {
+            SendMessage(GetDlgItem(hDlg, IDC_LOGBOX), WM_SETFONT, (WPARAM)g_hLogFont, TRUE);
+        }
 
 		GetModuleFileNameW(NULL, StubPath, MAX_PATH);
 		UpdateStub(hDlg);
@@ -536,11 +741,12 @@ LRESULT CALLBACK DlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 
 		return TRUE;
 	}
-	else if (Msg == WM_CLOSE)
-	{
-		EndDialog(hDlg, 0);
-		return TRUE;
-	}
+    else if (Msg == WM_CLOSE)
+    {
+        if (g_hLogFont) { DeleteObject(g_hLogFont); g_hLogFont = NULL; }
+        EndDialog(hDlg, 0);
+        return TRUE;
+    }
 	else if (Msg == WM_NOTIFY)
 	{
 		switch (((NMHDR*)lParam)->code)
